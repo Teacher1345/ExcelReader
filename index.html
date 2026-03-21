@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VocalSheet Premium</title>
   <!-- Load React and Dependencies -->
-  <script src="[https://unpkg.com/react@18/umd/react.production.min.js](https://unpkg.com/react@18/umd/react.production.min.js)"></script>
-  <script src="[https://unpkg.com/react-dom@18/umd/react-dom.production.min.js](https://unpkg.com/react-dom@18/umd/react-dom.production.min.js)"></script>
-  <script src="[https://unpkg.com/@babel/standalone/babel.min.js](https://unpkg.com/@babel/standalone/babel.min.js)"></script>
-  <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -287,7 +287,6 @@
               <div className="p-8 text-center bg-emerald-50/20">
                 <button onClick={() => {
                   setGrid(prev => {
-                    const nr = prev.length + 50;
                     return [...prev, ...Array(50).fill(null).map(() => Array(prev[0].length).fill(''))];
                   });
                 }} className="group px-6 py-2.5 text-[11px] text-emerald-700/60 hover:text-emerald-600 font-black uppercase tracking-[0.2em] flex items-center gap-3 mx-auto transition-all bg-white border border-emerald-100 rounded-full shadow-sm hover:shadow-md active:scale-95">
@@ -308,7 +307,8 @@
       );
     }
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
+    const container = document.getElementById('root');
+    const root = ReactDOM.createRoot(container);
     root.render(<App />);
   </script>
 </body>
