@@ -15,9 +15,18 @@
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #10b981; border-radius: 10px; }
     input[type="range"]::-webkit-slider-thumb { border-radius: 999px; }
     
-    /* Ensure the editor input looks like the cell it replaces */
     .cell-input {
       @apply absolute inset-0 w-full h-full px-3 outline-none border-2 border-emerald-500 bg-white z-[5] text-emerald-900 font-medium shadow-lg;
+    }
+
+    .spreadsheet-grid {
+      border-right: 1px solid #d1d5db;
+      border-bottom: 1px solid #d1d5db;
+    }
+    
+    .spreadsheet-grid td, .spreadsheet-grid th {
+      border-left: 1px solid #d1d5db;
+      border-top: 1px solid #d1d5db;
     }
   </style>
 </head>
@@ -64,6 +73,10 @@
       const [colWidths, setColWidths] = useState({}); 
       const [rowHeights, setRowHeights] = useState({}); 
       
+      // History for Undo/Redo
+      const [history, setHistory] = useState([]);
+      const [redoStack, setRedoStack] = useState([]);
+
       // Interaction State
       const [selection, setSelection] = useState({ start: null, end: null });
       const [isSelecting, setIsSelecting] = useState(false);
@@ -88,33 +101,110 @@
       const AlignCenter = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="10" x2="6" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="18" y1="18" x2="6" y2="18"/></svg>;
       const AlignRight = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/></svg>;
       const Maximize = ({className}) => <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>;
+      const Trash = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>;
+      const UndoIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>;
+      const RedoIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>;
+      const MinusSquare = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>;
+      const CopyIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>;
+      const Eraser = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.9-9.9c1-1 2.5-1 3.4 0l4.3 4.3c1 1 1 2.5 0 3.4L10.5 21z"/><path d="M22 21H7"/><path d="M5 11l9 9"/></svg>;
 
-      // Keyboard handler for shortcuts (Delete, Type to Edit)
+      // History Management
+      const pushToHistory = useCallback(() => {
+        setHistory(prev => [...prev.slice(-49), { grid: JSON.parse(JSON.stringify(grid)), styles: { ...styles } }]);
+        setRedoStack([]); 
+      }, [grid, styles]);
+
+      const undo = () => {
+        if (history.length === 0) return;
+        const previous = history[history.length - 1];
+        setRedoStack(prev => [...prev, { grid: JSON.parse(JSON.stringify(grid)), styles: { ...styles } }]);
+        setGrid(previous.grid);
+        setStyles(previous.styles);
+        setHistory(prev => prev.slice(0, -1));
+      };
+
+      const redo = () => {
+        if (redoStack.length === 0) return;
+        const next = redoStack[redoStack.length - 1];
+        setHistory(prev => [...prev, { grid: JSON.parse(JSON.stringify(grid)), styles: { ...styles } }]);
+        setGrid(next.grid);
+        setStyles(next.styles);
+        setRedoStack(prev => prev.slice(0, -1));
+      };
+
+      const deleteSelectedCells = () => {
+        if (!selection.start) return;
+        pushToHistory();
+        const rStart = Math.min(selection.start.r, selection.end.r);
+        const rEnd = Math.max(selection.start.r, selection.end.r);
+        const cStart = Math.min(selection.start.c, selection.end.c);
+        const cEnd = Math.max(selection.start.c, selection.end.c);
+        
+        setGrid(prev => {
+          const newGrid = [...prev.map(row => [...row])];
+          for (let r = rStart; r <= rEnd; r++) {
+            for (let c = cStart; c <= cEnd; c++) {
+              newGrid[r][c] = '';
+            }
+          }
+          return newGrid;
+        });
+      };
+
+      const handleCopy = () => {
+        if (!selection.start || !selection.end) return;
+        const rStart = Math.min(selection.start.r, selection.end.r);
+        const rEnd = Math.max(selection.start.r, selection.end.r);
+        const cStart = Math.min(selection.start.c, selection.end.c);
+        const cEnd = Math.max(selection.start.c, selection.end.c);
+        
+        let textRows = [];
+        for (let r = rStart; r <= rEnd; r++) {
+          let rowCells = [];
+          for (let c = cStart; c <= cEnd; c++) {
+            rowCells.push(grid[r][c]);
+          }
+          textRows.push(rowCells.join('\t'));
+        }
+        const textToCopy = textRows.join('\n');
+        
+        const textArea = document.createElement("textarea");
+        textArea.value = textToCopy;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+        } catch (err) {
+          console.error('Copy failed', err);
+        }
+        document.body.removeChild(textArea);
+      };
+
+      // Keyboard handler
       useEffect(() => {
         const handleKeyDown = (e) => {
           if (editing) return;
           if (!selection.start) return;
 
-          // Delete/Backspace to clear values
-          if (e.key === 'Delete' || e.key === 'Backspace') {
-            const rStart = Math.min(selection.start.r, selection.end.r);
-            const rEnd = Math.max(selection.start.r, selection.end.r);
-            const cStart = Math.min(selection.start.c, selection.end.c);
-            const cEnd = Math.max(selection.start.c, selection.end.c);
-            
-            setGrid(prev => {
-              const newGrid = [...prev.map(row => [...row])];
-              for (let r = rStart; r <= rEnd; r++) {
-                for (let c = cStart; c <= cEnd; c++) {
-                  newGrid[r][c] = '';
-                }
-              }
-              return newGrid;
-            });
+          if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+            e.preventDefault();
+            if (e.shiftKey) redo(); else undo();
+            return;
           }
-
-          // Type to start editing (if it's a single character)
+          if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+            e.preventDefault();
+            redo();
+            return;
+          }
+          if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+            handleCopy();
+            return;
+          }
+          if (e.key === 'Delete' || e.key === 'Backspace') {
+            deleteSelectedCells();
+          }
           if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            pushToHistory();
             setEditing({ r: selection.start.r, c: selection.start.c });
             setGrid(prev => {
               const newGrid = [...prev.map(row => [...row])];
@@ -126,7 +216,7 @@
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-      }, [selection, editing]);
+      }, [selection, editing, history, redoStack, grid, styles, pushToHistory]);
 
       useEffect(() => {
         audioRef.current = new Audio();
@@ -219,13 +309,15 @@
         const text = e.clipboardData.getData('text');
         if (!text) return;
         
-        // Split text into rows and then columns (tab-separated)
-        const rows = text.split(/\r?\n/).filter(l => l.length > 0);
+        pushToHistory();
+        const rawRows = text.split(/\r?\n/);
+        if (rawRows.length > 1 && rawRows[rawRows.length - 1] === '') rawRows.pop();
+        
         const startR = selection.start?.r || 0;
         const startC = selection.start?.c || 0;
         
         let maxR = startR, maxC = startC;
-        const matrix = rows.map((row, i) => {
+        const matrix = rawRows.map((row, i) => {
           const cols = row.split('\t');
           maxR = Math.max(maxR, startR + i);
           maxC = Math.max(maxC, startC + cols.length - 1);
@@ -237,14 +329,9 @@
           const nc = Math.max(prev[0].length, maxC + 1);
           const newGrid = Array(nr).fill(null).map((_, r) => {
             let currentRow = prev[r] || Array(nc).fill('');
-            // Ensure the existing row has enough columns
-            if (currentRow.length < nc) {
-              currentRow = [...currentRow, ...Array(nc - currentRow.length).fill('')];
-            } else {
-              currentRow = [...currentRow];
-            }
+            if (currentRow.length < nc) currentRow = [...currentRow, ...Array(nc - currentRow.length).fill('')];
+            else currentRow = [...currentRow];
 
-            // Apply pasted values
             if (r >= startR && r <= maxR) {
               const pasteRow = matrix[r - startR];
               pasteRow.forEach((v, j) => {
@@ -255,9 +342,59 @@
           });
           return newGrid;
         });
-        
-        // Update selection to match pasted area
         setSelection({ start: { r: startR, c: startC }, end: { r: maxR, c: maxC } });
+      };
+
+      const deleteRows = () => {
+        if (!selection.start) return;
+        pushToHistory();
+        const rMin = Math.min(selection.start.r, selection.end.r);
+        const rMax = Math.max(selection.start.r, selection.end.r);
+        const count = rMax - rMin + 1;
+
+        setGrid(prev => {
+          const next = prev.filter((_, i) => i < rMin || i > rMax);
+          while (next.length < prev.length) next.push(Array(prev[0].length).fill(''));
+          return next;
+        });
+        
+        setStyles(prev => {
+          const next = {};
+          Object.entries(prev).forEach(([key, val]) => {
+            const [r, c] = key.split('-').map(Number);
+            if (r < rMin) next[key] = val;
+            else if (r > rMax) next[`${r - count}-${c}`] = val;
+          });
+          return next;
+        });
+        setSelection({ start: null, end: null });
+      };
+
+      const deleteCols = () => {
+        if (!selection.start) return;
+        pushToHistory();
+        const cMin = Math.min(selection.start.c, selection.end.c);
+        const cMax = Math.max(selection.start.c, selection.end.c);
+        const count = cMax - cMin + 1;
+
+        setGrid(prev => {
+          return prev.map(row => {
+            const nextRow = row.filter((_, i) => i < cMin || i > cMax);
+            while (nextRow.length < row.length) nextRow.push('');
+            return nextRow;
+          });
+        });
+
+        setStyles(prev => {
+          const next = {};
+          Object.entries(prev).forEach(([key, val]) => {
+            const [r, c] = key.split('-').map(Number);
+            if (c < cMin) next[key] = val;
+            else if (c > cMax) next[`${r}-${c - count}`] = val;
+          });
+          return next;
+        });
+        setSelection({ start: null, end: null });
       };
 
       const getColLabel = (i) => {
@@ -268,6 +405,7 @@
 
       const applyStyleToSelection = (prop, value) => {
         if (!selection.start) return;
+        pushToHistory();
         const rStart = Math.min(selection.start.r, selection.end.r);
         const rEnd = Math.max(selection.start.r, selection.end.r);
         const cStart = Math.min(selection.start.c, selection.end.c);
@@ -285,6 +423,15 @@
         });
       };
 
+      const clearAll = () => {
+        if (confirm("Clear all data in the spreadsheet?")) {
+          pushToHistory();
+          setGrid(Array(50).fill(null).map(() => Array(26).fill('')));
+          setStyles({});
+          setSelection({ start: null, end: null });
+        }
+      };
+
       return (
         <div className="flex flex-col h-screen bg-[#f1f5f2] text-slate-900 font-sans overflow-hidden">
           <header className="bg-white/80 backdrop-blur-md border-b border-emerald-100 px-6 py-3 flex items-center justify-between gap-4 z-30 shadow-sm">
@@ -298,13 +445,27 @@
                   <span className="text-[10px] font-bold text-emerald-600/60 uppercase tracking-widest mt-1 block">Premium Edition</span>
                 </div>
               </div>
+              
+              <div className="flex items-center gap-1 bg-emerald-50 p-1 rounded-xl border border-emerald-100 mr-2">
+                <button onClick={undo} disabled={history.length === 0} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30 transition-all" title="Undo (Ctrl+Z)"><UndoIcon /></button>
+                <button onClick={redo} disabled={redoStack.length === 0} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30 transition-all" title="Redo (Ctrl+Y)"><RedoIcon /></button>
+              </div>
+
               <div className="flex items-center gap-1.5 bg-emerald-50/50 p-1 rounded-xl border border-emerald-100">
-                <button onClick={() => applyStyleToSelection('bold', true)} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all"><BoldIcon /></button>
-                <button onClick={() => applyStyleToSelection('italic', true)} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all"><ItalicIcon /></button>
+                <button onClick={handleCopy} disabled={!selection.start} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30 transition-all" title="Copy (Ctrl+C)"><CopyIcon /></button>
+                <button onClick={deleteSelectedCells} disabled={!selection.start} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30 transition-all" title="Clear Cell Contents (Del)"><Eraser /></button>
                 <div className="w-px h-5 bg-emerald-200 mx-1" />
-                <button onClick={() => applyStyleToSelection('align', 'left')} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all"><AlignLeft /></button>
-                <button onClick={() => applyStyleToSelection('align', 'center')} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all"><AlignCenter /></button>
-                <button onClick={() => applyStyleToSelection('align', 'right')} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all"><AlignRight /></button>
+                <button onClick={() => applyStyleToSelection('bold', true)} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Bold"><BoldIcon /></button>
+                <button onClick={() => applyStyleToSelection('italic', true)} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Italic"><ItalicIcon /></button>
+                <div className="w-px h-5 bg-emerald-200 mx-1" />
+                <button onClick={() => applyStyleToSelection('align', 'left')} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Align Left"><AlignLeft /></button>
+                <button onClick={() => applyStyleToSelection('align', 'center')} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Align Center"><AlignCenter /></button>
+                <button onClick={() => applyStyleToSelection('align', 'right')} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Align Right"><AlignRight /></button>
+                <div className="w-px h-5 bg-emerald-200 mx-1" />
+                <button onClick={deleteRows} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all flex items-center gap-1 text-[10px] font-bold" title="Delete Selected Rows"><MinusSquare /> Rows</button>
+                <button onClick={deleteCols} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all flex items-center gap-1 text-[10px] font-bold" title="Delete Selected Columns"><MinusSquare /> Cols</button>
+                <div className="w-px h-5 bg-emerald-200 mx-1" />
+                <button onClick={clearAll} className="p-2 hover:bg-red-50 hover:text-red-600 rounded-lg text-slate-400 transition-all" title="Clear Grid"><Trash /></button>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -315,7 +476,7 @@
               </div>
               {!isPlaying ? (
                 <button onClick={handleVoiceOver} disabled={isLoading || !selection.start} className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-full font-bold text-sm transition-all shadow-md active:scale-95">
-                  {isLoading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play fill="currentColor" />} Read
+                  {isLoading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play fill="currentColor" />} Read Selection
                 </button>
               ) : (
                 <div className="flex items-center gap-1.5 bg-emerald-600 p-1 rounded-full shadow-lg">
@@ -330,13 +491,13 @@
             onMouseUp={() => setIsSelecting(false)} 
             onPaste={handlePaste}
           >
-            <div className="bg-white rounded-xl border border-emerald-100 shadow-xl inline-block min-w-full">
-              <table className="border-collapse table-fixed min-w-full select-none">
+            <div className="bg-white rounded-xl border border-gray-300 shadow-xl inline-block min-w-full">
+              <table className="border-collapse table-fixed min-w-full select-none spreadsheet-grid">
                 <thead>
                   <tr className="sticky top-0 z-20">
-                    <th className="w-12 bg-emerald-50/50 border-r border-b border-emerald-100"></th>
+                    <th className="w-12 bg-emerald-50/80 border-gray-300 text-gray-500 font-bold text-[10px]"></th>
                     {grid[0].map((_, c) => (
-                      <th key={c} style={{ width: colWidths[c] || 140 }} className="bg-emerald-50/50 border-r border-b border-emerald-100 p-2 text-[11px] font-black text-emerald-700/60 uppercase relative group hover:bg-emerald-100/50 transition-colors">
+                      <th key={c} style={{ width: colWidths[c] || 140 }} className="bg-emerald-50/80 p-2 text-[11px] font-black text-emerald-700/60 uppercase relative group hover:bg-emerald-100/50 transition-colors border-gray-300">
                         {getColLabel(c)}
                         <div onMouseDown={(e) => { e.stopPropagation(); setResizing({ type: 'col', index: c, startPos: e.pageX, startDim: colWidths[c] || 140 }); }} className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize group-hover:bg-emerald-300 transition-colors z-30" />
                       </th>
@@ -346,7 +507,7 @@
                 <tbody>
                   {grid.map((row, r) => (
                     <tr key={r} style={{ height: rowHeights[r] || 38 }}>
-                      <td className="sticky left-0 bg-emerald-50/50 border-r border-b border-emerald-100 text-center text-[10px] font-black text-emerald-700/40 relative group hover:bg-emerald-100/50 transition-colors z-10">
+                      <td className="sticky left-0 bg-emerald-50/80 border-gray-300 text-center text-[10px] font-black text-emerald-700/40 relative group hover:bg-emerald-100/50 transition-colors z-10">
                         {r + 1}
                         <div onMouseDown={(e) => { e.stopPropagation(); setResizing({ type: 'row', index: r, startPos: e.pageY, startDim: rowHeights[r] || 38 }); }} className="absolute bottom-0 left-0 w-full h-1.5 cursor-row-resize group-hover:bg-emerald-300 transition-colors z-30" />
                       </td>
@@ -361,7 +522,7 @@
                             onMouseDown={() => { setSelection({ start: { r, c }, end: { r, c } }); setIsSelecting(true); setEditing(null); }} 
                             onMouseEnter={() => isSelecting && setSelection(p => ({ ...p, end: { r, c } }))} 
                             onDoubleClick={() => { setEditing({ r, c }); setSelection({ start: { r, c }, end: { r, c } }); }} 
-                            className={`border-r border-b border-emerald-50/50 p-0 relative transition-all ${sel ? 'bg-emerald-50/60' : ''} ${isPrimary ? 'ring-2 ring-emerald-500 z-[1]' : ''}`}
+                            className={`p-0 relative transition-all border-gray-300 ${sel ? 'bg-emerald-50/60' : ''} ${isPrimary ? 'ring-2 ring-emerald-500 ring-inset z-[1]' : ''}`}
                           >
                             {editing?.r === r && editing?.c === c ? (
                               <input 
@@ -370,7 +531,10 @@
                                 value={cell} 
                                 onChange={(e) => { const n = [...grid]; n[r][c] = e.target.value; setGrid(n); }} 
                                 onBlur={() => setEditing(null)} 
-                                onKeyDown={(e) => e.key === 'Enter' && setEditing(null)} 
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') setEditing(null);
+                                  if (e.key === 'Escape') setEditing(null);
+                                }} 
                               />
                             ) : (
                               <div style={{ fontWeight: s.bold ? 'bold' : 'normal', fontStyle: s.italic ? 'italic' : 'normal', textAlign: s.align || 'left' }} className="px-3 truncate w-full h-full flex items-center overflow-hidden text-slate-700 font-medium tracking-tight">
@@ -386,9 +550,7 @@
               </table>
               <div className="p-8 text-center bg-emerald-50/20">
                 <button onClick={() => {
-                  setGrid(prev => {
-                    return [...prev, ...Array(50).fill(null).map(() => Array(prev[0].length).fill(''))];
-                  });
+                  setGrid(prev => [...prev, ...Array(50).fill(null).map(() => Array(prev[0].length).fill(''))]);
                 }} className="group px-6 py-2.5 text-[11px] text-emerald-700/60 hover:text-emerald-600 font-black uppercase tracking-[0.2em] flex items-center gap-3 mx-auto transition-all bg-white border border-emerald-100 rounded-full shadow-sm hover:shadow-md active:scale-95">
                   <Maximize className="group-hover:rotate-90 transition-transform duration-500" /> Load Extra Rows
                 </button>
@@ -399,10 +561,10 @@
             <div className="flex gap-8 items-center">
               <span className="opacity-80">System Live</span>
               <span className="opacity-60">{grid.length}R × {grid[0].length}C Active Area</span>
-              <span className="text-[10px] text-emerald-400">Ctrl+V to Paste | Double-click or Type to Edit | Del to Clear</span>
+              <span className="text-[10px] text-emerald-400">Read Highlight with up to 5x speed</span>
             </div>
             {selection.start && (
-              <div className="bg-white/10 px-3 py-1 rounded-lg border border-white/10">
+              <div className="bg-white/10 px-3 py-1 rounded-lg border border-white/10 font-mono text-[10px]">
                 {getColLabel(Math.min(selection.start.c, selection.end.c))}{Math.min(selection.start.r, selection.end.r) + 1} : {getColLabel(Math.max(selection.start.c, selection.end.c))}{Math.max(selection.start.r, selection.end.r) + 1}
               </div>
             )}
