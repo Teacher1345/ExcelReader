@@ -1,4 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+<!DOCTYPE html>
+<html>
+<head>
+  <title>VocalSheet</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    // import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Play, 
   Pause, 
@@ -330,22 +342,45 @@ export default function App() {
               <h2 className="text-3xl font-black text-slate-800 tracking-tight">Deployment Hub</h2>
             </div>
             
-            <div className="grid gap-8">
+            <div className="grid gap-8 overflow-y-auto max-h-[70vh] pr-2">
               <section className="bg-slate-50 p-6 rounded-2xl border border-slate-100 group hover:border-emerald-200 transition-all">
-                <h3 className="font-black text-slate-800 flex items-center gap-2 mb-3"><Github size={20} className="text-emerald-600" /> GitHub Pages</h3>
-                <div className="text-sm text-slate-600 space-y-2">
-                  <p>1. Export as <code className="bg-emerald-100/50 text-emerald-700 px-1.5 rounded">index.html</code></p>
-                  <p>2. Push to a repository and enable <strong className="text-emerald-700">Pages</strong> in Settings.</p>
+                <h3 className="font-black text-slate-800 flex items-center gap-2 mb-3"><Github size={20} className="text-emerald-600" /> GitHub Pages (Fix Rendering)</h3>
+                <div className="text-sm text-slate-600 space-y-2 leading-relaxed">
+                  <p>To avoid seeing raw code, you must create a file named <code className="bg-emerald-100/50 text-emerald-700 px-1.5 rounded">index.html</code> with this structure:</p>
+                  <pre className="bg-slate-900 text-emerald-400 p-3 rounded-lg mt-2 text-[11px] font-mono overflow-x-auto">
+{`<!DOCTYPE html>
+<html>
+<head>
+  <title>VocalSheet</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    // PASTE THE ENTIRE REACT CODE FROM CANVAS HERE
+  </script>
+</body>
+</html>`}
+                  </pre>
                 </div>
               </section>
 
               <section className="bg-slate-50 p-6 rounded-2xl border border-slate-100 group hover:border-emerald-200 transition-all">
-                <h3 className="font-black text-slate-800 flex items-center gap-2 mb-3"><Code2 size={20} className="text-emerald-600" /> Google Apps Script</h3>
+                <h3 className="font-black text-slate-800 flex items-center gap-2 mb-3"><Code2 size={20} className="text-emerald-600" /> Google Apps Script (Fix doGet)</h3>
                 <div className="text-sm text-slate-600 space-y-2 leading-relaxed">
-                  <p>Paste into a <code className="bg-emerald-100/50 text-emerald-700 px-1.5 rounded">.gs</code> script using <code className="text-emerald-700">HtmlService</code>.</p>
+                  <p>The "doGet not found" error happens if you don't have the entry function in your <code className="bg-emerald-100/50 text-emerald-700 px-1.5 rounded">Code.gs</code> file.</p>
+                  <p>1. In the Apps Script Editor, create <code className="font-bold">Code.gs</code> and paste:</p>
                   <pre className="bg-slate-900 text-emerald-400 p-3 rounded-lg mt-2 text-[11px] font-mono overflow-x-auto">
-                    function doGet() &#123; return HtmlService.createHtmlOutputFromFile('index'); &#125;
+{`function doGet() {
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle('VocalSheet')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}`}
                   </pre>
+                  <p className="mt-2 text-xs opacity-70">2. Create a file named <code className="font-bold">index.html</code> and paste the Canvas code inside a <code className="bg-slate-200 px-1">&lt;script&gt;</code> tag within a standard HTML template.</p>
                 </div>
               </section>
             </div>
@@ -464,3 +499,6 @@ export default function App() {
     </div>
   );
 }
+  </script>
+</body>
+</html>
