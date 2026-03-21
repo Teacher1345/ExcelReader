@@ -3,15 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>VocalSheet Premium</title>
+  <!-- Load React and Dependencies -->
+  <script src="[https://unpkg.com/react@18/umd/react.production.min.js](https://unpkg.com/react@18/umd/react.production.min.js)"></script>
+  <script src="[https://unpkg.com/react-dom@18/umd/react-dom.production.min.js](https://unpkg.com/react-dom@18/umd/react-dom.production.min.js)"></script>
+  <script src="[https://unpkg.com/@babel/standalone/babel.min.js](https://unpkg.com/@babel/standalone/babel.min.js)"></script>
+  <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
 </head>
 <body class="bg-slate-50">
   <div id="root"></div>
+
   <script type="text/babel">
-    /** import React, { useState, useEffect, useRef, useCallback } from 'react';
+    /** * PASTE THE ENTIRE "spreadsheet_app.jsx" CODE 
+     * FROM THE CANVAS BELOW THIS LINE
+     **/
+
+    // import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Play, 
   Pause, 
@@ -24,14 +31,9 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  Github,
-  Code2,
   Sparkles,
   Volume2,
-  Copy,
-  ExternalLink,
-  CheckCircle2,
-  Terminal
+  CheckCircle2
 } from 'lucide-react';
 
 const apiKey = ""; // Environment provides this at runtime
@@ -81,7 +83,6 @@ export default function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
-  const [showDeploy, setShowDeploy] = useState(false);
   const audioRef = useRef(null);
 
   useEffect(() => {
@@ -326,126 +327,8 @@ export default function App() {
               </button>
             </div>
           )}
-          
-          <button 
-            onClick={() => setShowDeploy(!showDeploy)} 
-            className="p-2.5 text-emerald-700 hover:bg-emerald-100 rounded-full transition-all" 
-            title="Deployment Info"
-          >
-            <Code2 size={20} />
-          </button>
         </div>
       </header>
-
-      {/* Deploy Overlay */}
-      {showDeploy && (
-        <div className="absolute inset-0 z-50 bg-emerald-950/20 backdrop-blur-md flex items-center justify-center p-6">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full p-10 relative border border-emerald-50 flex flex-col max-h-[90vh]">
-            <button onClick={() => setShowDeploy(false)} className="absolute top-6 right-6 text-slate-300 hover:text-emerald-600 transition-colors text-xl font-bold">✕</button>
-            
-            <div className="flex items-center gap-3 mb-8">
-              <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600 shadow-sm"><Terminal size={24} /></div>
-              <div>
-                <h2 className="text-3xl font-black text-slate-800 tracking-tight leading-none">The Deployment Masterlist</h2>
-                <p className="text-emerald-600 font-bold text-xs mt-2 uppercase tracking-widest">Everything you need to go live in 60 seconds</p>
-              </div>
-            </div>
-            
-            <div className="grid md:grid-cols-2 gap-8 overflow-y-auto pr-4 custom-scrollbar">
-              {/* Google Apps Script Block */}
-              <div className="flex flex-col h-full bg-slate-50 rounded-2xl border border-slate-200 p-8 shadow-sm">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2">
-                    <div className="p-2 bg-blue-100 text-blue-600 rounded-xl"><Code2 size={20} /></div>
-                    <h3 className="font-black text-slate-800 text-lg uppercase">Google Apps Script</h3>
-                  </div>
-                </div>
-                
-                <div className="space-y-6 flex-1">
-                  <div>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 px-1">1. Copy to Code.gs (Fixes Errors)</span>
-                    <div className="relative group">
-                      <pre className="bg-slate-900 text-emerald-400 p-4 rounded-xl text-[11px] font-mono border border-slate-700 leading-relaxed">
-{`function doGet() {
-  var output = HtmlService.createHtmlOutputFromFile('index');
-  return output
-    .setTitle('VocalSheet')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}`}
-                      </pre>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                      After pasting into <code className="bg-slate-100 px-1 rounded text-blue-600">Code.gs</code>, create an <code className="bg-slate-100 px-1 rounded text-blue-600">index.html</code> file and paste the <strong>GitHub Wrapper Code</strong> (see right panel) inside it.
-                    </p>
-                  </div>
-                  
-                  <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
-                    <p className="text-[11px] text-blue-700 font-black flex items-center gap-2 uppercase tracking-wider mb-2">
-                      <CheckCircle2 size={14} /> Final Step
-                    </p>
-                    <p className="text-[11px] text-blue-600 leading-relaxed">
-                      Click <strong className="text-blue-800">Deploy {" > "} New Deployment {" > "} Web App</strong>. Set "Execute as: Me" and "Who has access: Anyone".
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* GitHub Pages Block */}
-              <div className="flex flex-col h-full bg-emerald-50/40 rounded-2xl border border-emerald-100 p-8 shadow-sm">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2">
-                    <div className="p-2 bg-emerald-100 text-emerald-600 rounded-xl"><Github size={20} /></div>
-                    <h3 className="font-black text-slate-800 text-lg uppercase">GitHub & Web Host</h3>
-                  </div>
-                </div>
-
-                <div className="space-y-6 flex-1">
-                  <div>
-                    <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest block mb-2 px-1 text-center bg-white rounded-full py-1 border border-emerald-100">The "Magic" index.html Wrapper</span>
-                    <p className="text-[11px] text-emerald-800/80 mb-3 leading-relaxed font-medium">
-                      GitHub won't run raw JS files. Copy the code below, paste it into an <code className="bg-white px-1 border border-emerald-200 rounded text-emerald-700">index.html</code> file, and replace the comment with the Canvas code.
-                    </p>
-                    
-                    <div className="relative group">
-                      <pre className="bg-emerald-950 text-emerald-300 p-4 rounded-xl text-[10px] font-mono border border-emerald-800 h-64 overflow-auto custom-scrollbar">
-{`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-50">
-  <div id="root"></div>
-  <script type="text/babel">
-    /** PASTE THE ENTIRE CANVAS REACT CODE HERE **/
-  </script>
-</body>
-</html>`}
-                      </pre>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 mt-auto justify-center bg-white/50 p-3 rounded-full border border-emerald-100">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-sm shadow-emerald-400" />
-                    <span className="text-[10px] font-black text-emerald-800 uppercase tracking-widest">Ready to host anywhere</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="mt-8 flex justify-center pt-2">
-               <button onClick={() => setShowDeploy(false)} className="px-12 py-4 bg-emerald-900 text-white rounded-full font-black text-sm shadow-xl shadow-emerald-900/20 hover:bg-black transition-all active:scale-95 uppercase tracking-widest">Close Deployment Guide</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Main Grid Area */}
       <main className="flex-1 overflow-auto bg-[#f8faf9] relative p-6" onMouseUp={() => setIsSelecting(false)} onPaste={handlePaste}>
@@ -488,7 +371,7 @@ export default function App() {
                         onMouseDown={() => { setSelection({ start: { r, c }, end: { r, c } }); setIsSelecting(true); setEditing(null); }}
                         onMouseEnter={() => isSelecting && setSelection(prev => ({ ...prev, end: { r, c } }))}
                         onDoubleClick={() => { setEditing({ r, c }); setSelection({ start: { r, c }, end: { r, c } }); }}
-                        className={`border-r border-b border-emerald-50/60 p-0 relative transition-all ${isSelected ? 'bg-emerald-50/60 z-[1] shadow-[inset_0_0_0_1px_#10b981]' : ''}`}
+                        className={`border-r border-b border-emerald-50/50 p-0 relative transition-all ${isSelected ? 'bg-emerald-50/60 z-[1] shadow-[inset_0_0_0_1px_#10b981]' : ''}`}
                       >
                         {editing?.r === r && editing?.c === c ? (
                           <input
@@ -557,7 +440,12 @@ export default function App() {
       </footer>
     </div>
   );
-} **/
+}
+
+    // Initialize the App
+    const container = document.getElementById('root');
+    const root = ReactDOM.createRoot(container);
+    root.render(<App />);
   </script>
 </body>
 </html>
