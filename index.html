@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>VocalSheet</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -10,7 +9,7 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    // import React, { useState, useEffect, useRef, useCallback } from 'react';
+    import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Play, 
   Pause, 
@@ -26,7 +25,10 @@ import {
   Github,
   Code2,
   Sparkles,
-  Volume2
+  Volume2,
+  Copy,
+  ExternalLink,
+  CheckCircle2
 } from 'lucide-react';
 
 const apiKey = ""; // Environment provides this at runtime
@@ -335,23 +337,75 @@ export default function App() {
       {/* Deploy Overlay */}
       {showDeploy && (
         <div className="absolute inset-0 z-50 bg-emerald-950/20 backdrop-blur-md flex items-center justify-center p-6">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-10 relative border border-emerald-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full p-10 relative border border-emerald-50 flex flex-col max-h-[90vh]">
             <button onClick={() => setShowDeploy(false)} className="absolute top-6 right-6 text-slate-300 hover:text-emerald-600 transition-colors text-xl font-bold">✕</button>
-            <div className="flex items-center gap-3 mb-8">
+            
+            <div className="flex items-center gap-3 mb-6">
               <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600"><Maximize size={24} /></div>
-              <h2 className="text-3xl font-black text-slate-800 tracking-tight">Deployment Hub</h2>
+              <div>
+                <h2 className="text-3xl font-black text-slate-800 tracking-tight leading-none">Quick Deploy</h2>
+                <p className="text-emerald-600 font-bold text-xs mt-2 uppercase tracking-widest">Follow these steps to run the app anywhere</p>
+              </div>
             </div>
             
-            <div className="grid gap-8 overflow-y-auto max-h-[70vh] pr-2">
-              <section className="bg-slate-50 p-6 rounded-2xl border border-slate-100 group hover:border-emerald-200 transition-all">
-                <h3 className="font-black text-slate-800 flex items-center gap-2 mb-3"><Github size={20} className="text-emerald-600" /> GitHub Pages (Fix Rendering)</h3>
-                <div className="text-sm text-slate-600 space-y-2 leading-relaxed">
-                  <p>To avoid seeing raw code, you must create a file named <code className="bg-emerald-100/50 text-emerald-700 px-1.5 rounded">index.html</code> with this structure:</p>
-                  <pre className="bg-slate-900 text-emerald-400 p-3 rounded-lg mt-2 text-[11px] font-mono overflow-x-auto">
+            <div className="grid md:grid-cols-2 gap-6 overflow-y-auto pr-2 custom-scrollbar">
+              {/* Google Apps Script Block */}
+              <div className="flex flex-col h-full bg-slate-50 rounded-2xl border border-slate-200 p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><Code2 size={18} /></div>
+                  <h3 className="font-black text-slate-800">Google Apps Script</h3>
+                </div>
+                
+                <div className="space-y-4 flex-1">
+                  <div>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter block mb-2">Step 1: Code.gs (Fixes doGet error)</span>
+                    <div className="relative group">
+                      <pre className="bg-slate-900 text-emerald-400 p-3 rounded-xl text-[10px] font-mono h-24 overflow-auto scrollbar-none">
+{`function doGet() {
+  return HtmlService
+    .createHtmlOutputFromFile('index')
+    .setTitle('VocalSheet')
+    .setXFrameOptionsMode(
+      HtmlService.XFrameOptionsMode.ALLOWALL
+    );
+}`}
+                      </pre>
+                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-md backdrop-blur-sm transition-all active:scale-90"><Copy size={12}/></button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter block mb-2">Step 2: index.html</span>
+                    <p className="text-[11px] text-slate-600 mb-2">Create an <code className="bg-emerald-100 text-emerald-700 px-1 rounded">index.html</code> file and paste the <strong>GitHub Wrapper</strong> (see right panel) inside.</p>
+                  </div>
+                  
+                  <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                    <p className="text-[10px] text-blue-700 font-bold flex items-center gap-1">
+                      <CheckCircle2 size={12} /> Deployment Tip:
+                    </p>
+                    <p className="text-[10px] text-blue-600 leading-relaxed mt-1">Make sure you "Deploy as Web App" and set access to "Anyone".</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* GitHub Pages Block */}
+              <div className="flex flex-col h-full bg-emerald-50/50 rounded-2xl border border-emerald-100 p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg"><Github size={18} /></div>
+                  <h3 className="font-black text-slate-800">GitHub Pages Wrapper</h3>
+                </div>
+
+                <div className="space-y-4 flex-1">
+                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tighter block mb-1">Standard HTML Wrapper (Must use this!)</span>
+                  <p className="text-[11px] text-emerald-800/70 mb-2 leading-relaxed">Create a file named <code className="bg-white px-1 border border-emerald-100 rounded">index.html</code> in GitHub and paste this code:</p>
+                  
+                  <div className="relative group">
+                    <pre className="bg-emerald-950 text-emerald-300 p-3 rounded-xl text-[10px] font-mono h-48 overflow-auto">
 {`<!DOCTYPE html>
 <html>
 <head>
-  <title>VocalSheet</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -360,29 +414,26 @@ export default function App() {
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    // PASTE THE ENTIRE REACT CODE FROM CANVAS HERE
+    // --- PASTE CANVAS REACT CODE HERE ---
   </script>
 </body>
 </html>`}
-                  </pre>
-                </div>
-              </section>
+                    </pre>
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-md backdrop-blur-sm transition-all active:scale-90"><Copy size={12}/></button>
+                    </div>
+                  </div>
 
-              <section className="bg-slate-50 p-6 rounded-2xl border border-slate-100 group hover:border-emerald-200 transition-all">
-                <h3 className="font-black text-slate-800 flex items-center gap-2 mb-3"><Code2 size={20} className="text-emerald-600" /> Google Apps Script (Fix doGet)</h3>
-                <div className="text-sm text-slate-600 space-y-2 leading-relaxed">
-                  <p>The "doGet not found" error happens if you don't have the entry function in your <code className="bg-emerald-100/50 text-emerald-700 px-1.5 rounded">Code.gs</code> file.</p>
-                  <p>1. In the Apps Script Editor, create <code className="font-bold">Code.gs</code> and paste:</p>
-                  <pre className="bg-slate-900 text-emerald-400 p-3 rounded-lg mt-2 text-[11px] font-mono overflow-x-auto">
-{`function doGet() {
-  return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('VocalSheet')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}`}
-                  </pre>
-                  <p className="mt-2 text-xs opacity-70">2. Create a file named <code className="font-bold">index.html</code> and paste the Canvas code inside a <code className="bg-slate-200 px-1">&lt;script&gt;</code> tag within a standard HTML template.</p>
+                  <div className="flex items-center gap-2 mt-auto pt-4">
+                    <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                    <span className="text-[10px] font-black text-emerald-800 uppercase">Ready for Hosting</span>
+                  </div>
                 </div>
-              </section>
+              </div>
+            </div>
+            
+            <div className="mt-8 flex justify-center">
+               <button onClick={() => setShowDeploy(false)} className="px-8 py-3 bg-emerald-900 text-white rounded-full font-bold text-sm shadow-lg hover:bg-black transition-all active:scale-95">Got it, let's go!</button>
             </div>
           </div>
         </div>
