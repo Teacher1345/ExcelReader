@@ -14,6 +14,11 @@
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #10b981; border-radius: 10px; }
     input[type="range"]::-webkit-slider-thumb { border-radius: 999px; }
+    
+    /* Ensure the editor input looks like the cell it replaces */
+    .cell-input {
+      @apply absolute inset-0 w-full h-full px-3 outline-none border-2 border-emerald-500 bg-white z-[5] text-emerald-900 font-medium shadow-lg;
+    }
   </style>
 </head>
 <body class="bg-[#f8faf9]">
@@ -83,6 +88,45 @@
       const AlignCenter = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="10" x2="6" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="18" y1="18" x2="6" y2="18"/></svg>;
       const AlignRight = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/></svg>;
       const Maximize = ({className}) => <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>;
+
+      // Keyboard handler for shortcuts (Delete, Type to Edit)
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (editing) return;
+          if (!selection.start) return;
+
+          // Delete/Backspace to clear values
+          if (e.key === 'Delete' || e.key === 'Backspace') {
+            const rStart = Math.min(selection.start.r, selection.end.r);
+            const rEnd = Math.max(selection.start.r, selection.end.r);
+            const cStart = Math.min(selection.start.c, selection.end.c);
+            const cEnd = Math.max(selection.start.c, selection.end.c);
+            
+            setGrid(prev => {
+              const newGrid = [...prev.map(row => [...row])];
+              for (let r = rStart; r <= rEnd; r++) {
+                for (let c = cStart; c <= cEnd; c++) {
+                  newGrid[r][c] = '';
+                }
+              }
+              return newGrid;
+            });
+          }
+
+          // Type to start editing (if it's a single character)
+          if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            setEditing({ r: selection.start.r, c: selection.start.c });
+            setGrid(prev => {
+              const newGrid = [...prev.map(row => [...row])];
+              newGrid[selection.start.r][selection.start.c] = e.key;
+              return newGrid;
+            });
+          }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [selection, editing]);
 
       useEffect(() => {
         audioRef.current = new Audio();
@@ -174,9 +218,12 @@
         e.preventDefault();
         const text = e.clipboardData.getData('text');
         if (!text) return;
+        
+        // Split text into rows and then columns (tab-separated)
         const rows = text.split(/\r?\n/).filter(l => l.length > 0);
         const startR = selection.start?.r || 0;
         const startC = selection.start?.c || 0;
+        
         let maxR = startR, maxC = startC;
         const matrix = rows.map((row, i) => {
           const cols = row.split('\t');
@@ -184,19 +231,32 @@
           maxC = Math.max(maxC, startC + cols.length - 1);
           return cols;
         });
+
         setGrid(prev => {
           const nr = Math.max(prev.length, maxR + 1);
           const nc = Math.max(prev[0].length, maxC + 1);
           const newGrid = Array(nr).fill(null).map((_, r) => {
-            let row = prev[r] || Array(nc).fill('');
-            row = row.length < nc ? [...row, ...Array(nc - row.length).fill('')] : [...row];
-            if (r >= startR && r <= maxR) {
-              matrix[r - startR].forEach((v, j) => { if (startC + j < nc) row[startC + j] = v.trim(); });
+            let currentRow = prev[r] || Array(nc).fill('');
+            // Ensure the existing row has enough columns
+            if (currentRow.length < nc) {
+              currentRow = [...currentRow, ...Array(nc - currentRow.length).fill('')];
+            } else {
+              currentRow = [...currentRow];
             }
-            return row;
+
+            // Apply pasted values
+            if (r >= startR && r <= maxR) {
+              const pasteRow = matrix[r - startR];
+              pasteRow.forEach((v, j) => {
+                if (startC + j < nc) currentRow[startC + j] = v.trim();
+              });
+            }
+            return currentRow;
           });
           return newGrid;
         });
+        
+        // Update selection to match pasted area
         setSelection({ start: { r: startR, c: startC }, end: { r: maxR, c: maxC } });
       };
 
@@ -204,6 +264,25 @@
         let l = '';
         while (i >= 0) { l = String.fromCharCode((i % 26) + 65) + l; i = Math.floor(i / 26) - 1; }
         return l;
+      };
+
+      const applyStyleToSelection = (prop, value) => {
+        if (!selection.start) return;
+        const rStart = Math.min(selection.start.r, selection.end.r);
+        const rEnd = Math.max(selection.start.r, selection.end.r);
+        const cStart = Math.min(selection.start.c, selection.end.c);
+        const cEnd = Math.max(selection.start.c, selection.end.c);
+        
+        setStyles(prev => {
+          const next = { ...prev };
+          for (let r = rStart; r <= rEnd; r++) {
+            for (let c = cStart; c <= cEnd; c++) {
+              const key = `${r}-${c}`;
+              next[key] = { ...(next[key] || {}), [prop]: value === next[key]?.[prop] ? null : value };
+            }
+          }
+          return next;
+        });
       };
 
       return (
@@ -246,7 +325,11 @@
               )}
             </div>
           </header>
-          <main className="flex-1 overflow-auto bg-[#f8faf9] relative p-6 custom-scrollbar" onMouseUp={() => setIsSelecting(false)} onPaste={handlePaste}>
+          <main 
+            className="flex-1 overflow-auto bg-[#f8faf9] relative p-6 custom-scrollbar" 
+            onMouseUp={() => setIsSelecting(false)} 
+            onPaste={handlePaste}
+          >
             <div className="bg-white rounded-xl border border-emerald-100 shadow-xl inline-block min-w-full">
               <table className="border-collapse table-fixed min-w-full select-none">
                 <thead>
@@ -270,12 +353,29 @@
                       {row.map((cell, c) => {
                         const s = styles[`${r}-${c}`] || {};
                         const sel = selection.start && r >= Math.min(selection.start.r, selection.end.r) && r <= Math.max(selection.start.r, selection.end.r) && c >= Math.min(selection.start.c, selection.end.c) && c <= Math.max(selection.start.c, selection.end.c);
+                        const isPrimary = selection.start && selection.start.r === r && selection.start.c === c;
+
                         return (
-                          <td key={c} onMouseDown={() => { setSelection({ start: { r, c }, end: { r, c } }); setIsSelecting(true); setEditing(null); }} onMouseEnter={() => isSelecting && setSelection(p => ({ ...p, end: { r, c } }))} onDoubleClick={() => { setEditing({ r, c }); setSelection({ start: { r, c }, end: { r, c } }); }} className={`border-r border-b border-emerald-50/50 p-0 relative transition-all ${sel ? 'bg-emerald-50/60 shadow-[inset_0_0_0_1px_#10b981]' : ''}`}>
+                          <td 
+                            key={c} 
+                            onMouseDown={() => { setSelection({ start: { r, c }, end: { r, c } }); setIsSelecting(true); setEditing(null); }} 
+                            onMouseEnter={() => isSelecting && setSelection(p => ({ ...p, end: { r, c } }))} 
+                            onDoubleClick={() => { setEditing({ r, c }); setSelection({ start: { r, c }, end: { r, c } }); }} 
+                            className={`border-r border-b border-emerald-50/50 p-0 relative transition-all ${sel ? 'bg-emerald-50/60' : ''} ${isPrimary ? 'ring-2 ring-emerald-500 z-[1]' : ''}`}
+                          >
                             {editing?.r === r && editing?.c === c ? (
-                              <input autoFocus className="absolute inset-0 w-full h-full px-3 outline-none border-2 border-emerald-500 bg-white z-[5] text-emerald-900 font-medium" value={cell} onChange={(e) => { const n = [...grid]; n[r][c] = e.target.value; setGrid(n); }} onBlur={() => setEditing(null)} onKeyDown={(e) => e.key === 'Enter' && setEditing(null)} />
+                              <input 
+                                autoFocus 
+                                className="absolute inset-0 w-full h-full px-3 outline-none border-2 border-emerald-500 bg-white z-[5] text-emerald-900 font-medium" 
+                                value={cell} 
+                                onChange={(e) => { const n = [...grid]; n[r][c] = e.target.value; setGrid(n); }} 
+                                onBlur={() => setEditing(null)} 
+                                onKeyDown={(e) => e.key === 'Enter' && setEditing(null)} 
+                              />
                             ) : (
-                              <div style={{ fontWeight: s.bold ? 'bold' : 'normal', fontStyle: s.italic ? 'italic' : 'normal', textAlign: s.align || 'left' }} className="px-3 truncate w-full h-full flex items-center overflow-hidden text-slate-700 font-medium tracking-tight">{cell}</div>
+                              <div style={{ fontWeight: s.bold ? 'bold' : 'normal', fontStyle: s.italic ? 'italic' : 'normal', textAlign: s.align || 'left' }} className="px-3 truncate w-full h-full flex items-center overflow-hidden text-slate-700 font-medium tracking-tight">
+                                {cell}
+                              </div>
                             )}
                           </td>
                         );
@@ -296,7 +396,11 @@
             </div>
           </main>
           <footer className="bg-emerald-900 text-emerald-100 px-6 py-2 flex justify-between items-center text-[11px] font-bold uppercase tracking-wider">
-            <div className="flex gap-8 items-center"><span className="opacity-80">System Live</span><span className="opacity-60">{grid.length}R × {grid[0].length}C Active Area</span></div>
+            <div className="flex gap-8 items-center">
+              <span className="opacity-80">System Live</span>
+              <span className="opacity-60">{grid.length}R × {grid[0].length}C Active Area</span>
+              <span className="text-[10px] text-emerald-400">Ctrl+V to Paste | Double-click or Type to Edit | Del to Clear</span>
+            </div>
             {selection.start && (
               <div className="bg-white/10 px-3 py-1 rounded-lg border border-white/10">
                 {getColLabel(Math.min(selection.start.c, selection.end.c))}{Math.min(selection.start.r, selection.end.r) + 1} : {getColLabel(Math.max(selection.start.c, selection.end.c))}{Math.max(selection.start.r, selection.end.r) + 1}
