@@ -57,50 +57,113 @@
     }
 
     function App() {
-      const [grid, setGrid] = useState(Array(50).fill(null).map(() => Array(26).fill('')));
+      // Load grid from LocalStorage for Offline persistence
+      const [grid, setGrid] = useState(() => {
+        try {
+          const saved = localStorage.getItem('vocalSheetGrid');
+          if (saved) return JSON.parse(saved);
+        } catch (e) { console.error("Could not load local data"); }
+        return Array(50).fill(null).map(() => Array(26).fill(''));
+      });
+
       const [styles, setStyles] = useState({}); 
       const [colWidths, setColWidths] = useState({}); 
       const [rowHeights, setRowHeights] = useState({}); 
       const [history, setHistory] = useState([]);
       const [redoStack, setRedoStack] = useState([]);
       
-      // Update selection state to support multiple non-consecutive ranges
       const [selections, setSelections] = useState([]);
-      
       const [isSelecting, setIsSelecting] = useState(false);
       const [editing, setEditing] = useState(null);
       const [resizing, setResizing] = useState(null); 
+      
       const [isPlaying, setIsPlaying] = useState(false);
       const [isPaused, setIsPaused] = useState(false);
       const [speed, setSpeed] = useState(1);
       const [isLoading, setIsLoading] = useState(false);
       const [recognizedText, setRecognizedText] = useState("");
       
-      // API Key Management
+      // Offline & TTS Management
+      const [isOffline, setIsOffline] = useState(!navigator.onLine);
+      const [usingNativeTTS, setUsingNativeTTS] = useState(false);
+      
       const [runtimeApiKey, setRuntimeApiKey] = useState(DEFAULT_API_KEY);
       const [showSetup, setShowSetup] = useState(false);
       const [isSavingKey, setIsSavingKey] = useState(false);
       
       const audioRef = useRef(null);
       const gridRef = useRef(null);
+      const activeTextRef = useRef("");
+      const prevSpeed = useRef(speed);
 
-      // Check for stored API key on startup (Google Apps Script environment)
+      // Save grid changes to localStorage
+      useEffect(() => {
+        localStorage.setItem('vocalSheetGrid', JSON.stringify(grid));
+      }, [grid]);
+
+      // Online/Offline Listeners
+      useEffect(() => {
+        const handleOnline = () => setIsOffline(false);
+        const handleOffline = () => setIsOffline(true);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+          window.removeEventListener('online', handleOnline);
+          window.removeEventListener('offline', handleOffline);
+        };
+      }, []);
+
+      // Check for stored API key
       useEffect(() => {
         if (typeof google !== 'undefined' && google.script && google.script.run) {
           google.script.run
             .withSuccessHandler((key) => {
               if (key) {
                 setRuntimeApiKey(key);
-              } else if (!runtimeApiKey) {
+              } else if (!runtimeApiKey && !isOffline) {
                 setShowSetup(true);
               }
             })
             .getStoredApiKey();
         } else {
-          // If in preview/web mode, just check state
-          if (!runtimeApiKey) setShowSetup(true);
+          if (!runtimeApiKey && !isOffline) setShowSetup(true);
         }
-      }, []);
+      }, [isOffline, runtimeApiKey]);
+
+      // Dynamic Speed Adjustment Listener
+      useEffect(() => {
+        // 1. Instantly update Gemini Audio
+        if (audioRef.current) {
+          audioRef.current.playbackRate = speed;
+        }
+
+        // 2. Safely debounce and restart Native TTS to reflect speed change without breaking
+        if (speed !== prevSpeed.current) {
+          if (usingNativeTTS && isPlaying) {
+            const timeoutId = setTimeout(() => {
+              if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(activeTextRef.current);
+                utterance.rate = speed;
+                
+                const voices = window.speechSynthesis.getVoices();
+                const preferredVoice = voices.find(v => v.lang.toLowerCase().includes('fil') || v.lang.toLowerCase().includes('ph')) 
+                                    || voices.find(v => v.lang.toLowerCase().includes('en'));
+                if (preferredVoice) utterance.voice = preferredVoice;
+
+                utterance.onend = () => { setIsPlaying(false); setIsPaused(false); setUsingNativeTTS(false); };
+                utterance.onerror = () => { setIsPlaying(false); setIsPaused(false); setUsingNativeTTS(false); };
+                
+                window.speechSynthesis.speak(utterance);
+              }
+            }, 350); 
+            
+            prevSpeed.current = speed;
+            return () => clearTimeout(timeoutId);
+          }
+        }
+        prevSpeed.current = speed;
+      }, [speed, usingNativeTTS, isPlaying]);
 
       const saveApiKeyAction = () => {
         if (!runtimeApiKey.trim()) return;
@@ -142,7 +205,6 @@
         setRedoStack(prev => prev.slice(0, -1));
       }, [redoStack, grid, styles]);
 
-      // Optimized real-time text recognition (supports multiple selections)
       const recognizeSelectionText = useCallback(() => {
         if (selections.length === 0) { setRecognizedText(""); return; }
         
@@ -160,7 +222,6 @@
         });
 
         let parts = [];
-        // Loop sequentially to keep reading order logical
         for (let r = 0; r < grid.length; r++) {
           for (let c = 0; c < grid[0].length; c++) {
             if (selectedCells.has(`${r},${c}`)) {
@@ -172,7 +233,6 @@
         setRecognizedText(parts.join('. '));
       }, [selections, grid]);
 
-      // Runs instantly as you drag, tracking selection changes immediately
       useEffect(() => { recognizeSelectionText(); }, [selections, grid, recognizeSelectionText]);
 
       const copyToClipboard = (text) => {
@@ -288,15 +348,45 @@
         audioRef.current.src = URL.createObjectURL(pcmToWav(pcmData, sampleRate));
         audioRef.current.playbackRate = speed;
         audioRef.current.play();
+        setUsingNativeTTS(false);
         setIsPlaying(true);
         setIsPaused(false);
       };
 
+      const playNativeTTS = (text, rate) => {
+        activeTextRef.current = text;
+        setIsLoading(false);
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = rate;
+          
+          const voices = window.speechSynthesis.getVoices();
+          const preferredVoice = voices.find(v => v.lang.toLowerCase().includes('fil') || v.lang.toLowerCase().includes('ph')) 
+                              || voices.find(v => v.lang.toLowerCase().includes('en'));
+          if (preferredVoice) utterance.voice = preferredVoice;
+
+          utterance.onstart = () => { setIsPlaying(true); setIsPaused(false); setUsingNativeTTS(true); };
+          utterance.onend = () => { setIsPlaying(false); setIsPaused(false); setUsingNativeTTS(false); };
+          utterance.onerror = () => { setIsPlaying(false); setIsPaused(false); setUsingNativeTTS(false); };
+
+          window.speechSynthesis.speak(utterance);
+        } else {
+          alert("Offline Text-to-Speech is not supported in this browser.");
+        }
+      };
+
       const handleVoiceOver = async () => {
-        if (!recognizedText) return;
+        const textToRead = recognizedText;
+        if (!textToRead) return;
+        activeTextRef.current = textToRead;
         
-        // Detailed prompt to instruct Gemini to read Filipino names properly and pause at punctuation
-        const ttsPrompt = `Read the following Filipino names naturally. Do not pronounce punctuation marks like commas or periods, just pause briefly when you encounter them. Names: ${recognizedText}`;
+        if (isOffline) {
+          playNativeTTS(textToRead, speed);
+          return;
+        }
+
+        const ttsPrompt = `Read the following Filipino names naturally. Do not pronounce punctuation marks like commas or periods, just pause briefly when you encounter them. Names: ${textToRead}`;
         
         if (!runtimeApiKey) {
           setShowSetup(true);
@@ -313,14 +403,13 @@
                 processAudioResponse(response.data, response.mimeType);
               } else {
                 console.error("Server Error:", response.error);
-                alert("Voice Error: Check if your API Key is active.");
-                setShowSetup(true);
+                playNativeTTS(textToRead, speed); // Fallback if API fails
               }
             })
             .withFailureHandler((err) => {
               setIsLoading(false);
               console.error("Apps Script Error:", err);
-              alert("Server connection failed. Ensure your Code.gs is correctly set up with fetchTTSFromServer.");
+              playNativeTTS(textToRead, speed); // Fallback if network/server fails
             })
             .fetchTTSFromServer(ttsPrompt, runtimeApiKey);
           return;
@@ -338,13 +427,34 @@
           const data = await response.json();
           if (data.error) throw new Error(data.error.message);
           const audioPart = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-          if (!audioPart) throw new Error('No Audio Content returned. Check your API usage limits.');
+          if (!audioPart) throw new Error('No Audio Content returned.');
           processAudioResponse(audioPart.data, audioPart.mimeType);
         } catch (e) { 
           console.error(e);
-          alert("TTS Failed: " + e.message + "\n\nTip: Click the Key icon to verify your API Key.");
+          playNativeTTS(textToRead, speed); // Fallback to local voice if fetch fails
         } finally { 
           setIsLoading(false); 
+        }
+      };
+
+      const togglePause = () => {
+        if (usingNativeTTS) {
+          if (isPaused) { window.speechSynthesis.resume(); setIsPaused(false); }
+          else { window.speechSynthesis.pause(); setIsPaused(true); }
+        } else {
+          if (isPaused) { audioRef.current.play(); setIsPaused(false); } 
+          else { audioRef.current.pause(); setIsPaused(true); }
+        }
+      };
+
+      const resetVoice = () => {
+        if (usingNativeTTS) {
+          window.speechSynthesis.cancel();
+          setIsPlaying(false); setIsPaused(false); setUsingNativeTTS(false);
+        } else if (audioRef.current) {
+          audioRef.current.pause(); 
+          audioRef.current.currentTime = 0; 
+          setIsPlaying(false); setIsPaused(false);
         }
       };
 
@@ -397,13 +507,11 @@
         return () => window.removeEventListener('keydown', handleKeyDown);
       }, [selections, editing, grid, showSetup, handleVoiceOver, recognizedText, handleCopy, undo, redo, pushToHistory]);
 
-      // Initialize audio object once
       useEffect(() => {
         audioRef.current = new Audio();
         audioRef.current.onended = () => { setIsPlaying(false); setIsPaused(false); };
       }, []);
 
-      // Handle global mouse events for resizing and selection release
       useEffect(() => {
         const mm = (e) => {
           if (!resizing) return;
@@ -432,7 +540,6 @@
         const rawRows = text.split(/\r?\n/);
         if (rawRows.length > 1 && rawRows[rawRows.length - 1].trim() === '') rawRows.pop();
         
-        // Use the very first selected block as paste target root
         const targetSel = selections[0];
         const startR = targetSel.start.r;
         const startC = targetSel.start.c;
@@ -496,11 +603,12 @@
       const RotateCcwIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
       const CutIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>;
       const KeyIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg>;
+      const WifiOff = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="2" x2="22" y2="22"></line><path d="M8.5 16.5a5 5 0 0 1 7 0"></path><path d="M2 8.82a15 15 0 0 1 4.17-2.65"></path><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.82"></path><path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"></path><path d="M5 13a10 10 0 0 1 5.24-2.76"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>;
 
       return (
         <div className="flex flex-col h-screen bg-[#f1f5f2] text-slate-900 font-sans overflow-hidden">
           {/* API Key Setup Wizard Overlay */}
-          {showSetup && (
+          {showSetup && !isOffline && (
             <div className="fixed inset-0 z-[100] bg-emerald-950/40 backdrop-blur-md flex items-center justify-center p-6">
               <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 border border-emerald-100 animate-setup">
                 <div className="bg-emerald-100 w-16 h-16 rounded-2xl flex items-center justify-center text-emerald-600 mb-6 mx-auto">
@@ -582,8 +690,8 @@
                 </button>
               ) : (
                 <div className="flex items-center gap-1.5 bg-emerald-600 p-1 rounded-full shadow-lg">
-                  <button onClick={() => { if (isPaused) { audioRef.current.play(); setIsPaused(false); } else { audioRef.current.pause(); setIsPaused(true); } }} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors">{isPaused ? <PlayIcon fill="currentColor" /> : <PauseIcon />}</button>
-                  <button onClick={() => { audioRef.current.pause(); audioRef.current.currentTime = 0; setIsPlaying(false); setIsPaused(false); }} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"><RotateCcwIcon /></button>
+                  <button onClick={togglePause} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors">{isPaused ? <PlayIcon fill="currentColor" /> : <PauseIcon />}</button>
+                  <button onClick={resetVoice} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"><RotateCcwIcon /></button>
                 </div>
               )}
               <button onClick={() => setShowSetup(true)} className="p-2 text-slate-400 hover:text-emerald-600 transition-colors" title="Settings"><KeyIcon size={18}/></button>
@@ -688,10 +796,14 @@
 
           <footer className="bg-emerald-900 text-emerald-100 px-6 py-2 flex justify-between items-center text-[11px] font-bold uppercase tracking-wider">
             <div className="flex gap-8 items-center">
-              <span className="opacity-80">System Live</span>
+              {isOffline ? (
+                <span className="opacity-80 text-amber-400 flex items-center gap-1"><WifiOff /> Offline (Local Mode)</span>
+              ) : (
+                <span className="opacity-80">System Live</span>
+              )}
               <span className="opacity-60">{grid.length} Rows</span>
-              <span className={runtimeApiKey ? "text-emerald-400 font-mono" : "text-amber-400 font-mono animate-pulse"}>
-                {runtimeApiKey ? "Voice Enabled" : "⚠️ Voice Setup Required"}
+              <span className={runtimeApiKey || isOffline ? "text-emerald-400 font-mono" : "text-amber-400 font-mono animate-pulse"}>
+                {isOffline ? "Native Voice Active" : (runtimeApiKey ? "Voice Enabled" : "⚠️ Voice Setup Required")}
               </span>
               <span className="text-[10px] text-emerald-400 font-mono italic capitalize hidden md:inline">Ctrl+Drag for multiple selections</span>
             </div>
