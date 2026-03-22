@@ -63,7 +63,10 @@
       const [rowHeights, setRowHeights] = useState({}); 
       const [history, setHistory] = useState([]);
       const [redoStack, setRedoStack] = useState([]);
-      const [selection, setSelection] = useState({ start: null, end: null });
+      
+      // Update selection state to support multiple non-consecutive ranges
+      const [selections, setSelections] = useState([]);
+      
       const [isSelecting, setIsSelecting] = useState(false);
       const [editing, setEditing] = useState(null);
       const [resizing, setResizing] = useState(null); 
@@ -139,25 +142,38 @@
         setRedoStack(prev => prev.slice(0, -1));
       }, [redoStack, grid, styles]);
 
-      // Optimized real-time text recognition
+      // Optimized real-time text recognition (supports multiple selections)
       const recognizeSelectionText = useCallback(() => {
-        if (!selection.start || !selection.end) { setRecognizedText(""); return; }
-        const rStart = Math.min(selection.start.r, selection.end.r);
-        const rEnd = Math.max(selection.start.r, selection.end.r);
-        const cStart = Math.min(selection.start.c, selection.end.c);
-        const cEnd = Math.max(selection.start.c, selection.end.c);
+        if (selections.length === 0) { setRecognizedText(""); return; }
+        
+        const selectedCells = new Set();
+        selections.forEach(sel => {
+          const rStart = Math.min(sel.start.r, sel.end.r);
+          const rEnd = Math.max(sel.start.r, sel.end.r);
+          const cStart = Math.min(sel.start.c, sel.end.c);
+          const cEnd = Math.max(sel.start.c, sel.end.c);
+          for (let r = rStart; r <= rEnd; r++) {
+            for (let c = cStart; c <= cEnd; c++) {
+              selectedCells.add(`${r},${c}`);
+            }
+          }
+        });
+
         let parts = [];
-        for (let r = rStart; r <= rEnd; r++) {
-          for (let c = cStart; c <= cEnd; c++) {
-            const val = grid[r]?.[c]?.trim();
-            if (val) parts.push(val);
+        // Loop sequentially to keep reading order logical
+        for (let r = 0; r < grid.length; r++) {
+          for (let c = 0; c < grid[0].length; c++) {
+            if (selectedCells.has(`${r},${c}`)) {
+              const val = grid[r]?.[c]?.trim();
+              if (val) parts.push(val);
+            }
           }
         }
         setRecognizedText(parts.join('. '));
-      }, [selection, grid]);
+      }, [selections, grid]);
 
-      // This now runs instantly as you drag, tracking selection changes immediately
-      useEffect(() => { recognizeSelectionText(); }, [selection, grid, recognizeSelectionText]);
+      // Runs instantly as you drag, tracking selection changes immediately
+      useEffect(() => { recognizeSelectionText(); }, [selections, grid, recognizeSelectionText]);
 
       const copyToClipboard = (text) => {
         const textArea = document.createElement("textarea");
@@ -169,66 +185,97 @@
       };
 
       const handleCopy = useCallback(() => {
-        if (!selection.start || !selection.end) return;
-        const rStart = Math.min(selection.start.r, selection.end.r);
-        const rEnd = Math.max(selection.start.r, selection.end.r);
-        const cStart = Math.min(selection.start.c, selection.end.c);
-        const cEnd = Math.max(selection.start.c, selection.end.c);
+        if (selections.length === 0) return;
+        
+        let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
+        const selectedCells = new Set();
+        
+        selections.forEach(sel => {
+          const rStart = Math.min(sel.start.r, sel.end.r);
+          const rEnd = Math.max(sel.start.r, sel.end.r);
+          const cStart = Math.min(sel.start.c, sel.end.c);
+          const cEnd = Math.max(sel.start.c, sel.end.c);
+          minR = Math.min(minR, rStart);
+          maxR = Math.max(maxR, rEnd);
+          minC = Math.min(minC, cStart);
+          maxC = Math.max(maxC, cEnd);
+          for (let r = rStart; r <= rEnd; r++) {
+            for (let c = cStart; c <= cEnd; c++) {
+              selectedCells.add(`${r},${c}`);
+            }
+          }
+        });
+
         let textRows = [];
-        for (let r = rStart; r <= rEnd; r++) {
+        for (let r = minR; r <= maxR; r++) {
           let rowCells = [];
-          for (let c = cStart; c <= cEnd; c++) rowCells.push(grid[r][c]);
+          for (let c = minC; c <= maxC; c++) {
+            rowCells.push(selectedCells.has(`${r},${c}`) ? grid[r][c] : '');
+          }
           textRows.push(rowCells.join('\t'));
         }
         copyToClipboard(textRows.join('\n'));
-      }, [selection, grid]);
+      }, [selections, grid]);
 
       const handleCut = () => {
-        if (!selection.start) return;
+        if (selections.length === 0) return;
         handleCopy();
         pushToHistory();
-        const rMin = Math.min(selection.start.r, selection.end.r);
-        const rMax = Math.max(selection.start.r, selection.end.r);
-        const cMin = Math.min(selection.start.c, selection.end.c);
-        const cMax = Math.max(selection.start.c, selection.end.c);
+        
         setGrid(prev => {
-          const next = prev.map(row => [...row]);
-          for(let r=rMin; r<=rMax; r++) for(let c=cMin; c<=cMax; c++) next[r][c] = '';
-          return next;
+          const newGrid = [...prev.map(row => [...row])];
+          selections.forEach(sel => {
+            const rMin = Math.min(sel.start.r, sel.end.r);
+            const rMax = Math.max(sel.start.r, sel.end.r);
+            const cMin = Math.min(sel.start.c, sel.end.c);
+            const cMax = Math.max(sel.start.c, sel.end.c);
+            for(let r=rMin; r<=rMax; r++) for(let c=cMin; c<=cMax; c++) newGrid[r][c] = '';
+          });
+          return newGrid;
         });
       };
 
       const deleteRows = () => {
-        if (!selection.start) return;
+        if (selections.length === 0) return;
         pushToHistory();
-        const rMin = Math.min(selection.start.r, selection.end.r);
-        const rMax = Math.max(selection.start.r, selection.end.r);
+        const rowsToDelete = new Set();
+        selections.forEach(sel => {
+          const rMin = Math.min(sel.start.r, sel.end.r);
+          const rMax = Math.max(sel.start.r, sel.end.r);
+          for(let r=rMin; r<=rMax; r++) rowsToDelete.add(r);
+        });
+        
         setGrid(prev => {
-          const next = prev.filter((_, i) => i < rMin || i > rMax);
+          const next = prev.filter((_, i) => !rowsToDelete.has(i));
           while (next.length < prev.length) next.push(Array(prev[0].length).fill(''));
           return next;
         });
-        setSelection({ start: null, end: null });
+        setSelections([]);
       };
 
       const deleteCols = () => {
-        if (!selection.start) return;
+        if (selections.length === 0) return;
         pushToHistory();
-        const cMin = Math.min(selection.start.c, selection.end.c);
-        const cMax = Math.max(selection.start.c, selection.end.c);
+        const colsToDelete = new Set();
+        selections.forEach(sel => {
+          const cMin = Math.min(sel.start.c, sel.end.c);
+          const cMax = Math.max(sel.start.c, sel.end.c);
+          for(let c=cMin; c<=cMax; c++) colsToDelete.add(c);
+        });
+        
         setGrid(prev => prev.map(row => {
-          const nextRow = row.filter((_, i) => i < cMin || i > cMax);
+          const nextRow = row.filter((_, i) => !colsToDelete.has(i));
           while (nextRow.length < row.length) nextRow.push('');
           return nextRow;
         }));
-        setSelection({ start: null, end: null });
+        setSelections([]);
       };
 
       const handleDoubleClick = (r, c) => {
         const content = grid[r][c];
         if (content) copyToClipboard(content);
         setEditing({ r, c });
-        setSelection({ start: { r, c }, end: { r, c } });
+        setSelections([{ start: { r, c }, end: { r, c } }]);
       };
 
       const processAudioResponse = (base64Data, mimeType) => {
@@ -302,7 +349,7 @@
       useEffect(() => {
         const handleKeyDown = (e) => {
           if (editing || showSetup) return;
-          if (!selection.start) return;
+          if (selections.length === 0) return;
           if (e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); handleVoiceOver(); return; }
           
           if ((e.ctrlKey || e.metaKey) && e.key === 'z') { 
@@ -320,28 +367,42 @@
           if ((e.ctrlKey || e.metaKey) && e.key === 'x') { handleCut(); return; }
           if (e.key === 'Delete' || e.key === 'Backspace') {
             pushToHistory();
-            const rMin = Math.min(selection.start.r, selection.end.r), rMax = Math.max(selection.start.r, selection.end.r);
-            const cMin = Math.min(selection.start.c, selection.end.c), cMax = Math.max(selection.start.c, selection.end.c);
             setGrid(prev => {
-              const next = prev.map(row => [...row]);
-              for(let r=rMin; r<=rMax; r++) for(let c=cMin; c<=cMax; c++) next[r][c] = '';
-              return next;
+              const newGrid = [...prev.map(row => [...row])];
+              selections.forEach(sel => {
+                const rStart = Math.min(sel.start.r, sel.end.r);
+                const rEnd = Math.max(sel.start.r, sel.end.r);
+                const cStart = Math.min(sel.start.c, sel.end.c);
+                const cEnd = Math.max(sel.start.c, sel.end.c);
+                for (let r = rStart; r <= rEnd; r++) {
+                  for (let c = cStart; c <= cEnd; c++) {
+                    newGrid[r][c] = '';
+                  }
+                }
+              });
+              return newGrid;
             });
             return;
           }
           if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
             e.preventDefault(); pushToHistory();
-            setEditing({ r: selection.start.r, c: selection.start.c });
-            setGrid(prev => { const n = [...prev.map(row => [...row])]; n[selection.start.r][selection.start.c] = e.key; return n; });
+            const lastSel = selections[selections.length - 1];
+            setEditing({ r: lastSel.start.r, c: lastSel.start.c });
+            setGrid(prev => { const n = [...prev.map(row => [...row])]; n[lastSel.start.r][lastSel.start.c] = e.key; return n; });
           }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-      }, [selection, editing, grid, showSetup, handleVoiceOver, recognizedText, handleCopy, undo, redo, pushToHistory]);
+      }, [selections, editing, grid, showSetup, handleVoiceOver, recognizedText, handleCopy, undo, redo, pushToHistory]);
 
+      // Initialize audio object once
       useEffect(() => {
         audioRef.current = new Audio();
         audioRef.current.onended = () => { setIsPlaying(false); setIsPaused(false); };
+      }, []);
+
+      // Handle global mouse events for resizing and selection release
+      useEffect(() => {
         const mm = (e) => {
           if (!resizing) return;
           const delta = resizing.type === 'col' ? e.pageX - resizing.startPos : e.pageY - resizing.startPos;
@@ -349,20 +410,31 @@
           if (resizing.type === 'col') setColWidths(p => ({ ...p, [resizing.index]: dim }));
           else setRowHeights(p => ({ ...p, [resizing.index]: dim }));
         };
-        const mu = () => setResizing(null);
-        window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
-        return () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
+        const mu = () => {
+          setResizing(null);
+          setIsSelecting(false);
+        };
+        window.addEventListener('mousemove', mm); 
+        window.addEventListener('mouseup', mu);
+        return () => { 
+          window.removeEventListener('mousemove', mm); 
+          window.removeEventListener('mouseup', mu); 
+        };
       }, [resizing]);
 
       const handlePaste = (e) => {
         e.preventDefault();
         const text = e.clipboardData.getData('text');
-        if (!text) return;
+        if (!text || selections.length === 0) return;
         pushToHistory();
         const rawRows = text.split(/\r?\n/);
         if (rawRows.length > 1 && rawRows[rawRows.length - 1].trim() === '') rawRows.pop();
-        const startR = selection.start?.r || 0;
-        const startC = selection.start?.c || 0;
+        
+        // Use the very first selected block as paste target root
+        const targetSel = selections[0];
+        const startR = targetSel.start.r;
+        const startC = targetSel.start.c;
+        
         let maxR = startR, maxC = startC;
         const matrix = rawRows.map((row, i) => {
           const cols = row.split('\t');
@@ -381,23 +453,38 @@
             return curr;
           });
         });
-        setSelection({ start: { r: startR, c: startC }, end: { r: maxR, c: maxC } });
+        setSelections([{ start: { r: startR, c: startC }, end: { r: maxR, c: maxC } }]);
       };
 
       const getColLabel = (i) => { let l = ''; while (i >= 0) { l = String.fromCharCode((i % 26) + 65) + l; i = Math.floor(i / 26) - 1; } return l; };
       const applyStyle = (prop, val) => {
-        if (!selection.start) return;
+        if (selections.length === 0) return;
         pushToHistory();
-        const rMin = Math.min(selection.start.r, selection.end.r), rMax = Math.max(selection.start.r, selection.end.r);
-        const cMin = Math.min(selection.start.c, selection.end.c), cMax = Math.max(selection.start.c, selection.end.c);
         setStyles(prev => {
           const next = { ...prev };
-          for (let r = rMin; r <= rMax; r++) for (let c = cMin; c <= cMax; c++) {
-            const k = `${r}-${c}`;
-            next[k] = { ...(next[k] || {}), [prop]: val === next[k]?.[prop] ? null : value };
-          }
+          selections.forEach(sel => {
+            const rMin = Math.min(sel.start.r, sel.end.r);
+            const rMax = Math.max(sel.start.r, sel.end.r);
+            const cMin = Math.min(sel.start.c, sel.end.c);
+            const cMax = Math.max(sel.start.c, sel.end.c);
+            for (let r = rMin; r <= rMax; r++) {
+              for (let c = cMin; c <= cMax; c++) {
+                const k = `${r}-${c}`;
+                next[k] = { ...(next[k] || {}), [prop]: val === next[k]?.[prop] ? null : value };
+              }
+            }
+          });
           return next;
         });
+      };
+
+      const clearAll = () => {
+        if (confirm("Clear all data in the spreadsheet?")) {
+          pushToHistory();
+          setGrid(Array(50).fill(null).map(() => Array(26).fill('')));
+          setStyles({});
+          setSelections([]);
+        }
       };
 
       // Icons
@@ -476,6 +563,8 @@
                 <div className="w-px h-5 bg-emerald-200 mx-1" />
                 <button onClick={deleteRows} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 text-[10px] font-bold uppercase tracking-tighter">Del Rows</button>
                 <button onClick={deleteCols} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 text-[10px] font-bold uppercase tracking-tighter">Del Cols</button>
+                <div className="w-px h-5 bg-emerald-200 mx-1" />
+                <button onClick={clearAll} className="p-2 hover:bg-red-50 hover:text-red-600 rounded-lg text-slate-400 transition-all text-[10px] font-bold uppercase tracking-tighter" title="Clear Grid">Clear All</button>
               </div>
             </div>
 
@@ -522,22 +611,58 @@
                       </td>
                       {row.map((cell, c) => {
                         const s = styles[`${r}-${c}`] || {};
-                        const sel = selection.start && r >= Math.min(selection.start.r, selection.end.r) && r <= Math.max(selection.start.r, selection.end.r) && c >= Math.min(selection.start.c, selection.end.c) && c <= Math.max(selection.start.c, selection.end.c);
-                        const isPrimary = selection.start && selection.start.r === r && selection.start.c === c;
+                        
+                        // Check if this cell falls within ANY of the current selections
+                        const isSelected = selections.some(sel => {
+                          const rMin = Math.min(sel.start.r, sel.end.r);
+                          const rMax = Math.max(sel.start.r, sel.end.r);
+                          const cMin = Math.min(sel.start.c, sel.end.c);
+                          const cMax = Math.max(sel.start.c, sel.end.c);
+                          return r >= rMin && r <= rMax && c >= cMin && c <= cMax;
+                        });
+                        
+                        const lastSel = selections[selections.length - 1];
+                        const isPrimary = lastSel && lastSel.start.r === r && lastSel.start.c === c && selections.length === 1;
                         
                         return (
                           <td 
                             key={c} 
-                            onMouseDown={() => { setSelection({ start: { r, c }, end: { r, c } }); setIsSelecting(true); setEditing(null); if (gridRef.current) gridRef.current.focus(); }} 
-                            onMouseEnter={() => isSelecting && setSelection(p => ({ ...p, end: { r, c } }))} 
+                            onMouseDown={(e) => { 
+                              if (e.button !== 0) return;
+                              e.preventDefault(); 
+                              
+                              if (e.ctrlKey || e.metaKey) {
+                                // Add a new selection range
+                                setSelections(prev => [...prev, { start: { r, c }, end: { r, c } }]);
+                              } else {
+                                // Clear and start a single new selection range
+                                setSelections([{ start: { r, c }, end: { r, c } }]); 
+                              }
+                              
+                              setIsSelecting(true); 
+                              setEditing(null); 
+                              if (gridRef.current) gridRef.current.focus(); 
+                            }} 
+                            onMouseEnter={() => {
+                              if (isSelecting) {
+                                setSelections(prev => {
+                                  const newSels = [...prev];
+                                  if (newSels.length > 0) {
+                                    newSels[newSels.length - 1].end = { r, c };
+                                  }
+                                  return newSels;
+                                });
+                              }
+                            }} 
                             onDoubleClick={() => handleDoubleClick(r, c)} 
-                            className={`p-0 relative transition-all border-gray-300 ${sel ? 'bg-emerald-200/80 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.3)]' : ''} ${isPrimary ? 'ring-2 ring-emerald-600 ring-inset bg-emerald-100 z-[1]' : ''}`}
+                            className={`p-0 relative transition-all border-gray-300 ${isSelected ? 'bg-emerald-200/80 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.3)]' : ''} ${isPrimary ? 'ring-2 ring-emerald-600 ring-inset bg-emerald-100 z-[1]' : ''}`}
                           >
                             {editing?.r === r && editing?.c === c ? (
                               <input 
                                 autoFocus 
                                 className="absolute inset-0 w-full h-full px-3 outline-none border-2 border-emerald-600 bg-white z-[5] text-emerald-900 font-medium shadow-md" 
                                 value={cell} 
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onChange={(e) => { const n = [...grid]; n[r][c] = e.target.value; setGrid(n); }} 
                                 onBlur={() => setEditing(null)} 
                                 onKeyDown={(e) => {
@@ -566,10 +691,15 @@
               <span className={runtimeApiKey ? "text-emerald-400 font-mono" : "text-amber-400 font-mono animate-pulse"}>
                 {runtimeApiKey ? "Voice Enabled" : "⚠️ Voice Setup Required"}
               </span>
+              <span className="text-[10px] text-emerald-400 font-mono italic capitalize hidden md:inline">Ctrl+Drag for multiple selections</span>
             </div>
-            {selection.start && (
+            {selections.length > 0 && (
               <div className="bg-white/10 px-3 py-1 rounded-lg border border-white/10 font-mono text-[10px]">
-                {getColLabel(Math.min(selection.start.c, selection.end.c))}{Math.min(selection.start.r, selection.end.r) + 1} : {getColLabel(Math.max(selection.start.c, selection.end.c))}{Math.max(selection.start.r, selection.end.r) + 1}
+                {selections.length > 1 ? (
+                  `${selections.length} Ranges Selected`
+                ) : (
+                  `${getColLabel(Math.min(selections[0].start.c, selections[0].end.c))}${Math.min(selections[0].start.r, selections[0].end.r) + 1} : ${getColLabel(Math.max(selections[0].start.c, selections[0].end.c))}${Math.max(selections[0].start.r, selections[0].end.r) + 1}`
+                )}
               </div>
             )}
           </footer>
