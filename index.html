@@ -293,8 +293,10 @@
       };
 
       const handleVoiceOver = async () => {
-        const textToRead = recognizedText;
-        if (!textToRead) return;
+        if (!recognizedText) return;
+        
+        // Detailed prompt to instruct Gemini to read Filipino names properly and pause at punctuation
+        const ttsPrompt = `Read the following Filipino names naturally. Do not pronounce punctuation marks like commas or periods, just pause briefly when you encounter them. Names: ${recognizedText}`;
         
         if (!runtimeApiKey) {
           setShowSetup(true);
@@ -320,7 +322,7 @@
               console.error("Apps Script Error:", err);
               alert("Server connection failed. Ensure your Code.gs is correctly set up with fetchTTSFromServer.");
             })
-            .fetchTTSFromServer(textToRead, runtimeApiKey);
+            .fetchTTSFromServer(ttsPrompt, runtimeApiKey);
           return;
         }
 
@@ -329,7 +331,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: [{ parts: [{ text: `Read these spreadsheet values: ${textToRead}` }] }],
+              contents: [{ parts: [{ text: ttsPrompt }] }],
               generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } } }
             })
           });
