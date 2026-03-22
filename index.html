@@ -239,6 +239,7 @@
         setRedoStack(prev => prev.slice(0, -1));
       }, [redoStack, grid, styles]);
 
+      // Optimized real-time text recognition for FAST, continuous reading per row
       const recognizeSelectionText = useCallback(() => {
         if (selections.length === 0) { setRecognizedText(""); return; }
         
@@ -255,16 +256,26 @@
           }
         });
 
-        let parts = [];
+        let rowsText = [];
         for (let r = 0; r < grid.length; r++) {
+          let currentRowParts = [];
           for (let c = 0; c < grid[0].length; c++) {
             if (selectedCells.has(`${r},${c}`)) {
-              const val = grid[r]?.[c]?.trim();
-              if (val) parts.push(val);
+              let val = grid[r]?.[c]?.trim();
+              if (val) {
+                // Strip commas and periods from the cell content so it reads continuously without micro-pauses
+                val = val.replace(/[,.]/g, '');
+                currentRowParts.push(val);
+              }
             }
           }
+          if (currentRowParts.length > 0) {
+            // Join columns in the same row with just a space
+            rowsText.push(currentRowParts.join(' '));
+          }
         }
-        setRecognizedText(parts.join('. '));
+        // Join distinct rows with a period to enforce the 1-second pause at the end of the row
+        setRecognizedText(rowsText.join('. '));
       }, [selections, grid]);
 
       useEffect(() => { recognizeSelectionText(); }, [selections, grid, recognizeSelectionText]);
@@ -401,7 +412,8 @@
           return;
         }
 
-        const ttsPrompt = `Read the following names naturally. Do not pronounce punctuation marks like commas or periods, just pause briefly when you encounter them. Names: ${textToRead}`;
+        // Updated Prompt: Instructs TTS to read the line fast, and only pause at the period (end of row).
+        const ttsPrompt = `Read the following rows of data continuously and fast. Do not pause between words in the same row. Pause for exactly one second at the end of each row (marked by a period). Data:\n${textToRead}`;
         
         if (!runtimeApiKey) {
           setShowSetup(true);
