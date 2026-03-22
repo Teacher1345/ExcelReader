@@ -14,30 +14,22 @@
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #10b981; border-radius: 10px; }
     input[type="range"]::-webkit-slider-thumb { border-radius: 999px; }
+    .cell-input { @apply absolute inset-0 w-full h-full px-3 outline-none border-2 border-emerald-600 bg-white z-[5] text-emerald-900 font-medium shadow-lg; }
+    .spreadsheet-grid { border-right: 1px solid #d1d5db; border-bottom: 1px solid #d1d5db; }
+    .spreadsheet-grid td, .spreadsheet-grid th { border-left: 1px solid #d1d5db; border-top: 1px solid #d1d5db; }
+    .grid-focus-container:focus { outline: none; }
     
-    .cell-input {
-      @apply absolute inset-0 w-full h-full px-3 outline-none border-2 border-emerald-500 bg-white z-[5] text-emerald-900 font-medium shadow-lg;
-    }
-
-    .spreadsheet-grid {
-      border-right: 1px solid #d1d5db;
-      border-bottom: 1px solid #d1d5db;
-    }
-    
-    .spreadsheet-grid td, .spreadsheet-grid th {
-      border-left: 1px solid #d1d5db;
-      border-top: 1px solid #d1d5db;
-    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-setup { animation: fadeIn 0.4s ease-out forwards; }
   </style>
 </head>
 <body class="bg-[#f8faf9]">
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useRef, useCallback } = React;
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
     
-    // Replace with your actual Gemini API Key if hosting externally
-    const apiKey = ""; 
+    const DEFAULT_API_KEY = "AIzaSyAoS3wC5pW4Ka6_3XN885zIi2uUemA7V2w"; 
     const TTS_MODEL = "gemini-2.5-flash-preview-tts";
 
     // Helper: Convert PCM16 to WAV
@@ -65,284 +57,145 @@
     }
 
     function App() {
-      // Spreadsheet Data
       const [grid, setGrid] = useState(Array(50).fill(null).map(() => Array(26).fill('')));
       const [styles, setStyles] = useState({}); 
-      
-      // Dimensions
       const [colWidths, setColWidths] = useState({}); 
       const [rowHeights, setRowHeights] = useState({}); 
-      
-      // History for Undo/Redo
       const [history, setHistory] = useState([]);
       const [redoStack, setRedoStack] = useState([]);
-
-      // Interaction State
       const [selection, setSelection] = useState({ start: null, end: null });
       const [isSelecting, setIsSelecting] = useState(false);
       const [editing, setEditing] = useState(null);
       const [resizing, setResizing] = useState(null); 
-
-      // Audio/TTS State
       const [isPlaying, setIsPlaying] = useState(false);
       const [isPaused, setIsPaused] = useState(false);
       const [speed, setSpeed] = useState(1);
       const [isLoading, setIsLoading] = useState(false);
+      const [recognizedText, setRecognizedText] = useState("");
+      
+      // API Key Management
+      const [runtimeApiKey, setRuntimeApiKey] = useState(DEFAULT_API_KEY);
+      const [showSetup, setShowSetup] = useState(false);
+      const [isSavingKey, setIsSavingKey] = useState(false);
+      
       const audioRef = useRef(null);
+      const gridRef = useRef(null);
 
-      // SVG Icons
-      const Sparkles = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>;
-      const Play = ({fill="none"}) => <svg width="14" height="14" viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
-      const Pause = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>;
-      const RotateCcw = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
-      const BoldIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>;
-      const ItalicIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>;
-      const AlignLeft = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>;
-      const AlignCenter = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="10" x2="6" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="18" y1="18" x2="6" y2="18"/></svg>;
-      const AlignRight = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/></svg>;
-      const Maximize = ({className}) => <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>;
-      const Trash = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>;
-      const UndoIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>;
-      const RedoIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>;
-      const MinusSquare = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>;
-      const CopyIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>;
-      const Eraser = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.9-9.9c1-1 2.5-1 3.4 0l4.3 4.3c1 1 1 2.5 0 3.4L10.5 21z"/><path d="M22 21H7"/><path d="M5 11l9 9"/></svg>;
+      // Check for stored API key on startup (Google Apps Script environment)
+      useEffect(() => {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          google.script.run
+            .withSuccessHandler((key) => {
+              if (key) {
+                setRuntimeApiKey(key);
+              } else if (!runtimeApiKey) {
+                setShowSetup(true);
+              }
+            })
+            .getStoredApiKey();
+        } else {
+          // If in preview/web mode, just check state
+          if (!runtimeApiKey) setShowSetup(true);
+        }
+      }, []);
 
-      // History Management
+      const saveApiKeyAction = () => {
+        if (!runtimeApiKey.trim()) return;
+        setIsSavingKey(true);
+        
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          google.script.run
+            .withSuccessHandler(() => {
+              setIsSavingKey(false);
+              setShowSetup(false);
+            })
+            .saveApiKey(runtimeApiKey);
+        } else {
+          setIsSavingKey(false);
+          setShowSetup(false);
+        }
+      };
+
       const pushToHistory = useCallback(() => {
         setHistory(prev => [...prev.slice(-49), { grid: JSON.parse(JSON.stringify(grid)), styles: { ...styles } }]);
         setRedoStack([]); 
       }, [grid, styles]);
 
-      const undo = () => {
+      const undo = useCallback(() => {
         if (history.length === 0) return;
         const previous = history[history.length - 1];
         setRedoStack(prev => [...prev, { grid: JSON.parse(JSON.stringify(grid)), styles: { ...styles } }]);
         setGrid(previous.grid);
         setStyles(previous.styles);
         setHistory(prev => prev.slice(0, -1));
-      };
+      }, [history, grid, styles]);
 
-      const redo = () => {
+      const redo = useCallback(() => {
         if (redoStack.length === 0) return;
         const next = redoStack[redoStack.length - 1];
         setHistory(prev => [...prev, { grid: JSON.parse(JSON.stringify(grid)), styles: { ...styles } }]);
         setGrid(next.grid);
         setStyles(next.styles);
         setRedoStack(prev => prev.slice(0, -1));
-      };
+      }, [redoStack, grid, styles]);
 
-      const deleteSelectedCells = () => {
-        if (!selection.start) return;
-        pushToHistory();
+      // Optimized real-time text recognition
+      const recognizeSelectionText = useCallback(() => {
+        if (!selection.start || !selection.end) { setRecognizedText(""); return; }
         const rStart = Math.min(selection.start.r, selection.end.r);
         const rEnd = Math.max(selection.start.r, selection.end.r);
         const cStart = Math.min(selection.start.c, selection.end.c);
         const cEnd = Math.max(selection.start.c, selection.end.c);
-        
-        setGrid(prev => {
-          const newGrid = [...prev.map(row => [...row])];
-          for (let r = rStart; r <= rEnd; r++) {
-            for (let c = cStart; c <= cEnd; c++) {
-              newGrid[r][c] = '';
-            }
-          }
-          return newGrid;
-        });
-      };
-
-      const handleCopy = () => {
-        if (!selection.start || !selection.end) return;
-        const rStart = Math.min(selection.start.r, selection.end.r);
-        const rEnd = Math.max(selection.start.r, selection.end.r);
-        const cStart = Math.min(selection.start.c, selection.end.c);
-        const cEnd = Math.max(selection.start.c, selection.end.c);
-        
-        let textRows = [];
+        let parts = [];
         for (let r = rStart; r <= rEnd; r++) {
-          let rowCells = [];
           for (let c = cStart; c <= cEnd; c++) {
-            rowCells.push(grid[r][c]);
+            const val = grid[r]?.[c]?.trim();
+            if (val) parts.push(val);
           }
-          textRows.push(rowCells.join('\t'));
         }
-        const textToCopy = textRows.join('\n');
-        
+        setRecognizedText(parts.join('. '));
+      }, [selection, grid]);
+
+      // This now runs instantly as you drag, tracking selection changes immediately
+      useEffect(() => { recognizeSelectionText(); }, [selection, grid, recognizeSelectionText]);
+
+      const copyToClipboard = (text) => {
         const textArea = document.createElement("textarea");
-        textArea.value = textToCopy;
+        textArea.value = text;
         document.body.appendChild(textArea);
         textArea.select();
-        try {
-          document.execCommand('copy');
-        } catch (err) {
-          console.error('Copy failed', err);
-        }
+        document.execCommand('copy');
         document.body.removeChild(textArea);
       };
 
-      // Keyboard handler
-      useEffect(() => {
-        const handleKeyDown = (e) => {
-          if (editing) return;
-          if (!selection.start) return;
-
-          if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-            e.preventDefault();
-            if (e.shiftKey) redo(); else undo();
-            return;
-          }
-          if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-            e.preventDefault();
-            redo();
-            return;
-          }
-          if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-            handleCopy();
-            return;
-          }
-          if (e.key === 'Delete' || e.key === 'Backspace') {
-            deleteSelectedCells();
-          }
-          if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-            pushToHistory();
-            setEditing({ r: selection.start.r, c: selection.start.c });
-            setGrid(prev => {
-              const newGrid = [...prev.map(row => [...row])];
-              newGrid[selection.start.r][selection.start.c] = e.key;
-              return newGrid;
-            });
-          }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-      }, [selection, editing, history, redoStack, grid, styles, pushToHistory]);
-
-      useEffect(() => {
-        audioRef.current = new Audio();
-        audioRef.current.onended = () => { setIsPlaying(false); setIsPaused(false); };
-        
-        const handleGlobalMouseMove = (e) => {
-          if (!resizing) return;
-          const delta = resizing.type === 'col' ? e.pageX - resizing.startPos : e.pageY - resizing.startPos;
-          const newDim = Math.max(30, resizing.startDim + delta);
-          if (resizing.type === 'col') setColWidths(prev => ({ ...prev, [resizing.index]: newDim }));
-          else setRowHeights(prev => ({ ...prev, [resizing.index]: newDim }));
-        };
-
-        const handleGlobalMouseUp = () => setResizing(null);
-        window.addEventListener('mousemove', handleGlobalMouseMove);
-        window.addEventListener('mouseup', handleGlobalMouseUp);
-        return () => {
-          window.removeEventListener('mousemove', handleGlobalMouseMove);
-          window.removeEventListener('mouseup', handleGlobalMouseUp);
-        };
-      }, [resizing]);
-
-      useEffect(() => {
-        if (audioRef.current) audioRef.current.playbackRate = speed;
-      }, [speed]);
-
-      const fetchTTS = async (text, retryCount = 0) => {
-        try {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent?key=${apiKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: `Read the following spreadsheet data: ${text}` }] }],
-                generationConfig: {
-                  responseModalities: ["AUDIO"],
-                  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
-                }
-              })
-            }
-          );
-          if (!response.ok) throw new Error('API Error');
-          const data = await response.json();
-          const audioPart = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-          if (!audioPart) throw new Error('No audio');
-          const sampleRate = parseInt(audioPart.mimeType.match(/sampleRate=(\d+)/)?.[1] || "24000");
-          const binaryString = atob(audioPart.data);
-          const pcmData = new Int16Array(binaryString.length / 2);
-          for (let i = 0; i < pcmData.length; i++) {
-            pcmData[i] = binaryString.charCodeAt(i * 2) | (binaryString.charCodeAt(i * 2 + 1) << 8);
-          }
-          return pcmToWav(pcmData, sampleRate);
-        } catch (error) {
-          if (retryCount < 5) {
-            await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 1000));
-            return fetchTTS(text, retryCount + 1);
-          }
-          throw error;
-        }
-      };
-
-      const handleVoiceOver = async () => {
+      const handleCopy = useCallback(() => {
         if (!selection.start || !selection.end) return;
         const rStart = Math.min(selection.start.r, selection.end.r);
         const rEnd = Math.max(selection.start.r, selection.end.r);
         const cStart = Math.min(selection.start.c, selection.end.c);
         const cEnd = Math.max(selection.start.c, selection.end.c);
-        let textParts = [];
+        let textRows = [];
         for (let r = rStart; r <= rEnd; r++) {
-          for (let c = cStart; c <= cEnd; c++) {
-            if (grid[r]?.[c]?.trim()) textParts.push(grid[r][c]);
-          }
+          let rowCells = [];
+          for (let c = cStart; c <= cEnd; c++) rowCells.push(grid[r][c]);
+          textRows.push(rowCells.join('\t'));
         }
-        const text = textParts.join('. ');
-        if (!text) return;
-        setIsLoading(true);
-        try {
-          const audioBlob = await fetchTTS(text);
-          audioRef.current.src = URL.createObjectURL(audioBlob);
-          audioRef.current.playbackRate = speed;
-          audioRef.current.play();
-          setIsPlaying(true);
-          setIsPaused(false);
-        } catch (e) { console.error(e); } finally { setIsLoading(false); }
-      };
+        copyToClipboard(textRows.join('\n'));
+      }, [selection, grid]);
 
-      const handlePaste = (e) => {
-        e.preventDefault();
-        const text = e.clipboardData.getData('text');
-        if (!text) return;
-        
+      const handleCut = () => {
+        if (!selection.start) return;
+        handleCopy();
         pushToHistory();
-        const rawRows = text.split(/\r?\n/);
-        if (rawRows.length > 1 && rawRows[rawRows.length - 1] === '') rawRows.pop();
-        
-        const startR = selection.start?.r || 0;
-        const startC = selection.start?.c || 0;
-        
-        let maxR = startR, maxC = startC;
-        const matrix = rawRows.map((row, i) => {
-          const cols = row.split('\t');
-          maxR = Math.max(maxR, startR + i);
-          maxC = Math.max(maxC, startC + cols.length - 1);
-          return cols;
-        });
-
+        const rMin = Math.min(selection.start.r, selection.end.r);
+        const rMax = Math.max(selection.start.r, selection.end.r);
+        const cMin = Math.min(selection.start.c, selection.end.c);
+        const cMax = Math.max(selection.start.c, selection.end.c);
         setGrid(prev => {
-          const nr = Math.max(prev.length, maxR + 1);
-          const nc = Math.max(prev[0].length, maxC + 1);
-          const newGrid = Array(nr).fill(null).map((_, r) => {
-            let currentRow = prev[r] || Array(nc).fill('');
-            if (currentRow.length < nc) currentRow = [...currentRow, ...Array(nc - currentRow.length).fill('')];
-            else currentRow = [...currentRow];
-
-            if (r >= startR && r <= maxR) {
-              const pasteRow = matrix[r - startR];
-              pasteRow.forEach((v, j) => {
-                if (startC + j < nc) currentRow[startC + j] = v.trim();
-              });
-            }
-            return currentRow;
-          });
-          return newGrid;
+          const next = prev.map(row => [...row]);
+          for(let r=rMin; r<=rMax; r++) for(let c=cMin; c<=cMax; c++) next[r][c] = '';
+          return next;
         });
-        setSelection({ start: { r: startR, c: startC }, end: { r: maxR, c: maxC } });
       };
 
       const deleteRows = () => {
@@ -350,21 +203,9 @@
         pushToHistory();
         const rMin = Math.min(selection.start.r, selection.end.r);
         const rMax = Math.max(selection.start.r, selection.end.r);
-        const count = rMax - rMin + 1;
-
         setGrid(prev => {
           const next = prev.filter((_, i) => i < rMin || i > rMax);
           while (next.length < prev.length) next.push(Array(prev[0].length).fill(''));
-          return next;
-        });
-        
-        setStyles(prev => {
-          const next = {};
-          Object.entries(prev).forEach(([key, val]) => {
-            const [r, c] = key.split('-').map(Number);
-            if (r < rMin) next[key] = val;
-            else if (r > rMax) next[`${r - count}-${c}`] = val;
-          });
           return next;
         });
         setSelection({ start: null, end: null });
@@ -375,99 +216,269 @@
         pushToHistory();
         const cMin = Math.min(selection.start.c, selection.end.c);
         const cMax = Math.max(selection.start.c, selection.end.c);
-        const count = cMax - cMin + 1;
-
-        setGrid(prev => {
-          return prev.map(row => {
-            const nextRow = row.filter((_, i) => i < cMin || i > cMax);
-            while (nextRow.length < row.length) nextRow.push('');
-            return nextRow;
-          });
-        });
-
-        setStyles(prev => {
-          const next = {};
-          Object.entries(prev).forEach(([key, val]) => {
-            const [r, c] = key.split('-').map(Number);
-            if (c < cMin) next[key] = val;
-            else if (c > cMax) next[`${r}-${c - count}`] = val;
-          });
-          return next;
-        });
+        setGrid(prev => prev.map(row => {
+          const nextRow = row.filter((_, i) => i < cMin || i > cMax);
+          while (nextRow.length < row.length) nextRow.push('');
+          return nextRow;
+        }));
         setSelection({ start: null, end: null });
       };
 
-      const getColLabel = (i) => {
-        let l = '';
-        while (i >= 0) { l = String.fromCharCode((i % 26) + 65) + l; i = Math.floor(i / 26) - 1; }
-        return l;
+      const handleDoubleClick = (r, c) => {
+        const content = grid[r][c];
+        if (content) copyToClipboard(content);
+        setEditing({ r, c });
+        setSelection({ start: { r, c }, end: { r, c } });
       };
 
-      const applyStyleToSelection = (prop, value) => {
+      const processAudioResponse = (base64Data, mimeType) => {
+        const sampleRate = parseInt(mimeType.match(/sampleRate=(\d+)/)?.[1] || "24000");
+        const binaryString = atob(base64Data);
+        const pcmData = new Int16Array(binaryString.length / 2);
+        for (let i = 0; i < pcmData.length; i++) {
+          pcmData[i] = binaryString.charCodeAt(i * 2) | (binaryString.charCodeAt(i * 2 + 1) << 8);
+        }
+        audioRef.current.src = URL.createObjectURL(pcmToWav(pcmData, sampleRate));
+        audioRef.current.playbackRate = speed;
+        audioRef.current.play();
+        setIsPlaying(true);
+        setIsPaused(false);
+      };
+
+      const handleVoiceOver = async () => {
+        const textToRead = recognizedText;
+        if (!textToRead) return;
+        
+        if (!runtimeApiKey) {
+          setShowSetup(true);
+          return;
+        }
+
+        setIsLoading(true);
+
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          google.script.run
+            .withSuccessHandler((response) => {
+              setIsLoading(false);
+              if (response.success) {
+                processAudioResponse(response.data, response.mimeType);
+              } else {
+                console.error("Server Error:", response.error);
+                alert("Voice Error: Check if your API Key is active.");
+                setShowSetup(true);
+              }
+            })
+            .withFailureHandler((err) => {
+              setIsLoading(false);
+              console.error("Apps Script Error:", err);
+              alert("Server connection failed. Ensure your Code.gs is correctly set up with fetchTTSFromServer.");
+            })
+            .fetchTTSFromServer(textToRead, runtimeApiKey);
+          return;
+        }
+
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent?key=${runtimeApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: `Read these spreadsheet values: ${textToRead}` }] }],
+              generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } } }
+            })
+          });
+          const data = await response.json();
+          if (data.error) throw new Error(data.error.message);
+          const audioPart = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+          if (!audioPart) throw new Error('No Audio Content returned. Check your API usage limits.');
+          processAudioResponse(audioPart.data, audioPart.mimeType);
+        } catch (e) { 
+          console.error(e);
+          alert("TTS Failed: " + e.message + "\n\nTip: Click the Key icon to verify your API Key.");
+        } finally { 
+          setIsLoading(false); 
+        }
+      };
+
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (editing || showSetup) return;
+          if (!selection.start) return;
+          if (e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); handleVoiceOver(); return; }
+          
+          if ((e.ctrlKey || e.metaKey) && e.key === 'z') { 
+            e.preventDefault(); 
+            if (e.shiftKey) redo(); else undo(); 
+            return; 
+          }
+          if ((e.ctrlKey || e.metaKey) && e.key === 'y') { 
+            e.preventDefault(); 
+            redo(); 
+            return; 
+          }
+
+          if ((e.ctrlKey || e.metaKey) && e.key === 'c') { handleCopy(); return; }
+          if ((e.ctrlKey || e.metaKey) && e.key === 'x') { handleCut(); return; }
+          if (e.key === 'Delete' || e.key === 'Backspace') {
+            pushToHistory();
+            const rMin = Math.min(selection.start.r, selection.end.r), rMax = Math.max(selection.start.r, selection.end.r);
+            const cMin = Math.min(selection.start.c, selection.end.c), cMax = Math.max(selection.start.c, selection.end.c);
+            setGrid(prev => {
+              const next = prev.map(row => [...row]);
+              for(let r=rMin; r<=rMax; r++) for(let c=cMin; c<=cMax; c++) next[r][c] = '';
+              return next;
+            });
+            return;
+          }
+          if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault(); pushToHistory();
+            setEditing({ r: selection.start.r, c: selection.start.c });
+            setGrid(prev => { const n = [...prev.map(row => [...row])]; n[selection.start.r][selection.start.c] = e.key; return n; });
+          }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [selection, editing, grid, showSetup, handleVoiceOver, recognizedText, handleCopy, undo, redo, pushToHistory]);
+
+      useEffect(() => {
+        audioRef.current = new Audio();
+        audioRef.current.onended = () => { setIsPlaying(false); setIsPaused(false); };
+        const mm = (e) => {
+          if (!resizing) return;
+          const delta = resizing.type === 'col' ? e.pageX - resizing.startPos : e.pageY - resizing.startPos;
+          const dim = Math.max(30, resizing.startDim + delta);
+          if (resizing.type === 'col') setColWidths(p => ({ ...p, [resizing.index]: dim }));
+          else setRowHeights(p => ({ ...p, [resizing.index]: dim }));
+        };
+        const mu = () => setResizing(null);
+        window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
+        return () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
+      }, [resizing]);
+
+      const handlePaste = (e) => {
+        e.preventDefault();
+        const text = e.clipboardData.getData('text');
+        if (!text) return;
+        pushToHistory();
+        const rawRows = text.split(/\r?\n/);
+        if (rawRows.length > 1 && rawRows[rawRows.length - 1].trim() === '') rawRows.pop();
+        const startR = selection.start?.r || 0;
+        const startC = selection.start?.c || 0;
+        let maxR = startR, maxC = startC;
+        const matrix = rawRows.map((row, i) => {
+          const cols = row.split('\t');
+          maxR = Math.max(maxR, startR + i);
+          maxC = Math.max(maxC, startC + cols.length - 1);
+          return cols;
+        });
+        setGrid(prev => {
+          const nr = Math.max(prev.length, maxR + 1);
+          const nc = Math.max(prev[0].length, maxC + 1);
+          return Array(nr).fill(null).map((_, r) => {
+            let curr = prev[r] || Array(nc).fill('');
+            if (curr.length < nc) curr = [...curr, ...Array(nc - curr.length).fill('')];
+            else curr = [...curr];
+            if (r >= startR && r <= maxR) matrix[r-startR].forEach((v, j) => { if (startC+j < nc) curr[startC+j] = v.trim(); });
+            return curr;
+          });
+        });
+        setSelection({ start: { r: startR, c: startC }, end: { r: maxR, c: maxC } });
+      };
+
+      const getColLabel = (i) => { let l = ''; while (i >= 0) { l = String.fromCharCode((i % 26) + 65) + l; i = Math.floor(i / 26) - 1; } return l; };
+      const applyStyle = (prop, val) => {
         if (!selection.start) return;
         pushToHistory();
-        const rStart = Math.min(selection.start.r, selection.end.r);
-        const rEnd = Math.max(selection.start.r, selection.end.r);
-        const cStart = Math.min(selection.start.c, selection.end.c);
-        const cEnd = Math.max(selection.start.c, selection.end.c);
-        
+        const rMin = Math.min(selection.start.r, selection.end.r), rMax = Math.max(selection.start.r, selection.end.r);
+        const cMin = Math.min(selection.start.c, selection.end.c), cMax = Math.max(selection.start.c, selection.end.c);
         setStyles(prev => {
           const next = { ...prev };
-          for (let r = rStart; r <= rEnd; r++) {
-            for (let c = cStart; c <= cEnd; c++) {
-              const key = `${r}-${c}`;
-              next[key] = { ...(next[key] || {}), [prop]: value === next[key]?.[prop] ? null : value };
-            }
+          for (let r = rMin; r <= rMax; r++) for (let c = cMin; c <= cMax; c++) {
+            const k = `${r}-${c}`;
+            next[k] = { ...(next[k] || {}), [prop]: val === next[k]?.[prop] ? null : value };
           }
           return next;
         });
       };
 
-      const clearAll = () => {
-        if (confirm("Clear all data in the spreadsheet?")) {
-          pushToHistory();
-          setGrid(Array(50).fill(null).map(() => Array(26).fill('')));
-          setStyles({});
-          setSelection({ start: null, end: null });
-        }
-      };
+      // Icons
+      const Sparkles = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>;
+      const PlayIcon = ({fill="none"}) => <svg width="14" height="14" viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
+      const PauseIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>;
+      const RotateCcwIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
+      const CutIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>;
+      const KeyIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg>;
 
       return (
         <div className="flex flex-col h-screen bg-[#f1f5f2] text-slate-900 font-sans overflow-hidden">
+          {/* API Key Setup Wizard Overlay */}
+          {showSetup && (
+            <div className="fixed inset-0 z-[100] bg-emerald-950/40 backdrop-blur-md flex items-center justify-center p-6">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 border border-emerald-100 animate-setup">
+                <div className="bg-emerald-100 w-16 h-16 rounded-2xl flex items-center justify-center text-emerald-600 mb-6 mx-auto">
+                  <KeyIcon size={32} />
+                </div>
+                <h2 className="text-2xl font-black text-center text-slate-800 tracking-tight">Voice Setup Required</h2>
+                <p className="text-slate-600 text-center text-sm mt-3 leading-relaxed">
+                  To enable the high-speed Voice Over feature, you need a free Gemini API Key from Google AI Studio.
+                </p>
+                
+                <div className="mt-8 space-y-4">
+                  <a 
+                    href="https://aistudio.google.com/app/apikey" 
+                    target="_blank" 
+                    className="flex items-center justify-center gap-2 w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-black transition-all"
+                  >
+                    Generate Free API Key <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  </a>
+                  
+                  <div className="relative">
+                    <input 
+                      type="password"
+                      placeholder="Paste your API Key here"
+                      className="w-full px-4 py-3 bg-emerald-50 border border-emerald-100 rounded-xl outline-none focus:ring-2 ring-emerald-500 text-sm font-mono"
+                      value={runtimeApiKey}
+                      onChange={(e) => setRuntimeApiKey(e.target.value)}
+                    />
+                  </div>
+                  
+                  <button 
+                    onClick={saveApiKeyAction}
+                    disabled={!runtimeApiKey || isSavingKey}
+                    className="w-full py-4 bg-emerald-600 text-white rounded-xl font-black text-sm shadow-xl shadow-emerald-200 hover:bg-emerald-700 disabled:opacity-50 transition-all uppercase tracking-widest"
+                  >
+                    {isSavingKey ? "Saving..." : "Save & Activate Voice"}
+                  </button>
+                  <button onClick={() => setShowSetup(false)} className="w-full text-xs text-slate-400 font-bold hover:text-slate-600 transition-colors mt-2 uppercase">Cancel for now</button>
+                </div>
+                <p className="text-[10px] text-slate-400 text-center mt-6">
+                  Your key is encoded and stored securely in your private Google Script environment.
+                </p>
+              </div>
+            </div>
+          )}
+
           <header className="bg-white/80 backdrop-blur-md border-b border-emerald-100 px-6 py-3 flex items-center justify-between gap-4 z-30 shadow-sm">
             <div className="flex items-center gap-8">
               <div className="flex items-center gap-3 pr-6 border-r border-emerald-100">
-                <div className="bg-emerald-600 p-2 rounded-lg text-white shadow-lg shadow-emerald-200/50 flex items-center justify-center">
-                  <Sparkles />
-                </div>
+                <div className="bg-emerald-600 p-2 rounded-lg text-white shadow-lg shadow-emerald-200/50 flex items-center justify-center"><Sparkles /></div>
                 <div>
                   <span className="font-extrabold text-xl text-emerald-900 tracking-tight leading-none block">VocalSheet</span>
-                  <span className="text-[10px] font-bold text-emerald-600/60 uppercase tracking-widest mt-1 block">Premium Edition</span>
+                  <span className="text-[10px] font-bold text-emerald-600/60 uppercase tracking-widest mt-1 block">Full Control</span>
                 </div>
               </div>
               
-              <div className="flex items-center gap-1 bg-emerald-50 p-1 rounded-xl border border-emerald-100 mr-2">
-                <button onClick={undo} disabled={history.length === 0} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30 transition-all" title="Undo (Ctrl+Z)"><UndoIcon /></button>
-                <button onClick={redo} disabled={redoStack.length === 0} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30 transition-all" title="Redo (Ctrl+Y)"><RedoIcon /></button>
-              </div>
-
               <div className="flex items-center gap-1.5 bg-emerald-50/50 p-1 rounded-xl border border-emerald-100">
-                <button onClick={handleCopy} disabled={!selection.start} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30 transition-all" title="Copy (Ctrl+C)"><CopyIcon /></button>
-                <button onClick={deleteSelectedCells} disabled={!selection.start} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30 transition-all" title="Clear Cell Contents (Del)"><Eraser /></button>
+                <button onClick={undo} disabled={history.length === 0} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30" title="Undo (Ctrl+Z)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg></button>
+                <button onClick={redo} disabled={redoStack.length === 0} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 disabled:opacity-30" title="Redo (Ctrl+Y)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg></button>
                 <div className="w-px h-5 bg-emerald-200 mx-1" />
-                <button onClick={() => applyStyleToSelection('bold', true)} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Bold"><BoldIcon /></button>
-                <button onClick={() => applyStyleToSelection('italic', true)} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Italic"><ItalicIcon /></button>
+                <button onClick={handleCut} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800" title="Cut (Ctrl+X)"><CutIcon /></button>
+                <button onClick={handleCopy} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800" title="Copy (Ctrl+C)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
                 <div className="w-px h-5 bg-emerald-200 mx-1" />
-                <button onClick={() => applyStyleToSelection('align', 'left')} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Align Left"><AlignLeft /></button>
-                <button onClick={() => applyStyleToSelection('align', 'center')} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Align Center"><AlignCenter /></button>
-                <button onClick={() => applyStyleToSelection('align', 'right')} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all" title="Align Right"><AlignRight /></button>
-                <div className="w-px h-5 bg-emerald-200 mx-1" />
-                <button onClick={deleteRows} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all flex items-center gap-1 text-[10px] font-bold" title="Delete Selected Rows"><MinusSquare /> Rows</button>
-                <button onClick={deleteCols} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 transition-all flex items-center gap-1 text-[10px] font-bold" title="Delete Selected Columns"><MinusSquare /> Cols</button>
-                <div className="w-px h-5 bg-emerald-200 mx-1" />
-                <button onClick={clearAll} className="p-2 hover:bg-red-50 hover:text-red-600 rounded-lg text-slate-400 transition-all" title="Clear Grid"><Trash /></button>
+                <button onClick={deleteRows} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 text-[10px] font-bold uppercase tracking-tighter">Del Rows</button>
+                <button onClick={deleteCols} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-emerald-800 text-[10px] font-bold uppercase tracking-tighter">Del Cols</button>
               </div>
             </div>
+
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-3 px-4 py-1.5 bg-emerald-50 rounded-full border border-emerald-100 shadow-inner">
                 <div className="flex items-center gap-2 text-[10px] font-black text-emerald-700/60 uppercase tracking-tighter">SPEED</div>
@@ -475,22 +486,20 @@
                 <span className="text-sm font-mono font-black text-emerald-700 w-10 text-center">{speed}x</span>
               </div>
               {!isPlaying ? (
-                <button onClick={handleVoiceOver} disabled={isLoading || !selection.start} className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-full font-bold text-sm transition-all shadow-md active:scale-95">
-                  {isLoading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Play fill="currentColor" />} Read Selection
+                <button onClick={handleVoiceOver} disabled={isLoading || !recognizedText} className={`flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-full font-bold text-sm transition-all shadow-md active:scale-95 ${recognizedText ? 'animate-pulse ring-2 ring-emerald-300' : ''}`}>
+                  {isLoading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <PlayIcon fill="currentColor" />} {recognizedText ? 'Read Selection' : 'Select Text'}
                 </button>
               ) : (
                 <div className="flex items-center gap-1.5 bg-emerald-600 p-1 rounded-full shadow-lg">
-                  <button onClick={() => { if (isPaused) { audioRef.current.play(); setIsPaused(false); } else { audioRef.current.pause(); setIsPaused(true); } }} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors">{isPaused ? <Play fill="currentColor" /> : <Pause />}</button>
-                  <button onClick={() => { audioRef.current.pause(); audioRef.current.currentTime = 0; setIsPlaying(false); setIsPaused(false); }} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"><RotateCcw /></button>
+                  <button onClick={() => { if (isPaused) { audioRef.current.play(); setIsPaused(false); } else { audioRef.current.pause(); setIsPaused(true); } }} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors">{isPaused ? <PlayIcon fill="currentColor" /> : <PauseIcon />}</button>
+                  <button onClick={() => { audioRef.current.pause(); audioRef.current.currentTime = 0; setIsPlaying(false); setIsPaused(false); }} className="p-2 hover:bg-white/10 rounded-full text-white transition-colors"><RotateCcwIcon /></button>
                 </div>
               )}
+              <button onClick={() => setShowSetup(true)} className="p-2 text-slate-400 hover:text-emerald-600 transition-colors" title="Settings"><KeyIcon size={18}/></button>
             </div>
           </header>
-          <main 
-            className="flex-1 overflow-auto bg-[#f8faf9] relative p-6 custom-scrollbar" 
-            onMouseUp={() => setIsSelecting(false)} 
-            onPaste={handlePaste}
-          >
+
+          <main ref={gridRef} tabIndex="0" className="grid-focus-container flex-1 overflow-auto bg-[#f8faf9] relative p-6 custom-scrollbar" onMouseUp={() => setIsSelecting(false)} onPaste={handlePaste}>
             <div className="bg-white rounded-xl border border-gray-300 shadow-xl inline-block min-w-full">
               <table className="border-collapse table-fixed min-w-full select-none spreadsheet-grid">
                 <thead>
@@ -515,25 +524,24 @@
                         const s = styles[`${r}-${c}`] || {};
                         const sel = selection.start && r >= Math.min(selection.start.r, selection.end.r) && r <= Math.max(selection.start.r, selection.end.r) && c >= Math.min(selection.start.c, selection.end.c) && c <= Math.max(selection.start.c, selection.end.c);
                         const isPrimary = selection.start && selection.start.r === r && selection.start.c === c;
-
+                        
                         return (
                           <td 
                             key={c} 
-                            onMouseDown={() => { setSelection({ start: { r, c }, end: { r, c } }); setIsSelecting(true); setEditing(null); }} 
+                            onMouseDown={() => { setSelection({ start: { r, c }, end: { r, c } }); setIsSelecting(true); setEditing(null); if (gridRef.current) gridRef.current.focus(); }} 
                             onMouseEnter={() => isSelecting && setSelection(p => ({ ...p, end: { r, c } }))} 
-                            onDoubleClick={() => { setEditing({ r, c }); setSelection({ start: { r, c }, end: { r, c } }); }} 
-                            className={`p-0 relative transition-all border-gray-300 ${sel ? 'bg-emerald-50/60' : ''} ${isPrimary ? 'ring-2 ring-emerald-500 ring-inset z-[1]' : ''}`}
+                            onDoubleClick={() => handleDoubleClick(r, c)} 
+                            className={`p-0 relative transition-all border-gray-300 ${sel ? 'bg-emerald-200/80 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.3)]' : ''} ${isPrimary ? 'ring-2 ring-emerald-600 ring-inset bg-emerald-100 z-[1]' : ''}`}
                           >
                             {editing?.r === r && editing?.c === c ? (
                               <input 
                                 autoFocus 
-                                className="absolute inset-0 w-full h-full px-3 outline-none border-2 border-emerald-500 bg-white z-[5] text-emerald-900 font-medium" 
+                                className="absolute inset-0 w-full h-full px-3 outline-none border-2 border-emerald-600 bg-white z-[5] text-emerald-900 font-medium shadow-md" 
                                 value={cell} 
                                 onChange={(e) => { const n = [...grid]; n[r][c] = e.target.value; setGrid(n); }} 
                                 onBlur={() => setEditing(null)} 
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter') setEditing(null);
-                                  if (e.key === 'Escape') setEditing(null);
+                                  if (e.key === 'Enter' || e.key === 'Escape') { setEditing(null); if (gridRef.current) gridRef.current.focus(); } 
                                 }} 
                               />
                             ) : (
@@ -548,20 +556,16 @@
                   ))}
                 </tbody>
               </table>
-              <div className="p-8 text-center bg-emerald-50/20">
-                <button onClick={() => {
-                  setGrid(prev => [...prev, ...Array(50).fill(null).map(() => Array(prev[0].length).fill(''))]);
-                }} className="group px-6 py-2.5 text-[11px] text-emerald-700/60 hover:text-emerald-600 font-black uppercase tracking-[0.2em] flex items-center gap-3 mx-auto transition-all bg-white border border-emerald-100 rounded-full shadow-sm hover:shadow-md active:scale-95">
-                  <Maximize className="group-hover:rotate-90 transition-transform duration-500" /> Load Extra Rows
-                </button>
-              </div>
             </div>
           </main>
+
           <footer className="bg-emerald-900 text-emerald-100 px-6 py-2 flex justify-between items-center text-[11px] font-bold uppercase tracking-wider">
             <div className="flex gap-8 items-center">
               <span className="opacity-80">System Live</span>
-              <span className="opacity-60">{grid.length}R × {grid[0].length}C Active Area</span>
-              <span className="text-[10px] text-emerald-400">Read Highlight with up to 5x speed</span>
+              <span className="opacity-60">{grid.length} Rows</span>
+              <span className={runtimeApiKey ? "text-emerald-400 font-mono" : "text-amber-400 font-mono animate-pulse"}>
+                {runtimeApiKey ? "Voice Enabled" : "⚠️ Voice Setup Required"}
+              </span>
             </div>
             {selection.start && (
               <div className="bg-white/10 px-3 py-1 rounded-lg border border-white/10 font-mono text-[10px]">
@@ -572,9 +576,7 @@
         </div>
       );
     }
-
-    const container = document.getElementById('root');
-    const root = ReactDOM.createRoot(container);
+    const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
 </body>
